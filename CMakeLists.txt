@@ -54,6 +54,7 @@ add_compile_options(
 
 add_library(jText_core STATIC
         jText.cpp
+        jTextValidator.cpp
 )
 
 target_include_directories(jText_core
