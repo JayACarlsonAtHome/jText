@@ -1,0 +1,103 @@
+# ============================================================
+# Build outputs
+# ============================================================
+build/
+build-*/
+cmake-build-*/
+out/
+bin/
+lib/
+
+# CMake-generated files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled objects and binaries
+*.o
+*.obj
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.exp
+
+# Debug info
+*.dSYM/
+*.pdb
+*.idb
+
+# ============================================================
+# CLion / JetBrains IDE
+# ============================================================
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ============================================================
+# Other editors (just in case)
+# ============================================================
+.vscode/
+*.swp
+*.swo
+*~
+.*.kate-swp
+
+# ============================================================
+# OS-generated files
+# ============================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# Test framework outputs
+# ============================================================
+test_report.log
+test_details.log
+test_summary.log
+tests/build/
+
+# ============================================================
+# jText-specific
+# ============================================================
+*.jCheck
+!tests/conformance/**/*.jCheck
+
+# ============================================================
+# Logs and temporary files
+# ============================================================
+*.log
+*.tmp
+*.bak
+*.orig
+
+# ============================================================
+# Coverage and profiling
+# ============================================================
+*.gcda
+*.gcno
+*.gcov
+coverage/
+lcov.info
+*.profraw
+*.profdata
+
+# ============================================================
+# Node (only if Claude Code or other Node tools are ever used here)
