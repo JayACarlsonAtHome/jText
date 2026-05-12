@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.26)
-project(JText
-        VERSION 0.1.0
-        DESCRIPTION "Lightweight structured text format library & tool (JText)"
+project(jText
+        VERSION 0.4.0
+        DESCRIPTION "Lightweight structured text format library & tool (jText)"
         LANGUAGES CXX
 )
 
@@ -48,62 +48,21 @@ add_compile_options(
         $<$<CONFIG:DEBUG>:-O0>
 )
 
-# ────────────────────────────────────────────────────────────────
-#  Library (core logic)
-# ────────────────────────────────────────────────────────────────
-
-add_library(jText_core STATIC
-        jText.cpp
-        jTextValidator.cpp
-)
-
-target_include_directories(jText_core
-        PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}
-        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-set_target_properties(jText_core PROPERTIES
-        CXX_STANDARD_REQUIRED     ON
-        CXX_EXTENSIONS            OFF
-)
+# Default build type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+endif()
 
 # ────────────────────────────────────────────────────────────────
-#  Main executable (demo / tool)
+#  Subdirectories
 # ────────────────────────────────────────────────────────────────
 
-add_executable(jText
-        main.cpp
-)
-
-target_link_libraries(jText PRIVATE
-        jText_core
-)
-
-set_target_properties(jText PROPERTIES
-        CXX_STANDARD_REQUIRED     ON
-        CXX_EXTENSIONS            OFF
-        EXPORT_COMPILE_COMMANDS   ON
-)
-
-# ────────────────────────────────────────────────────────────────
-#  Helpers / future expansion points
-# ────────────────────────────────────────────────────────────────
-
-add_custom_target(check-compile ALL DEPENDS jText)
-
-# Uncomment when you add tests:
-# enable_testing()
-# add_executable(jtext_tests tests/test_parser.cpp tests/test_write.cpp ...)
-# target_link_libraries(jtext_tests PRIVATE jtext_core)
-# add_test(NAME JText.Parser COMMAND jtext_tests)
+add_subdirectory(src)
+add_subdirectory(tests)
 
 # ────────────────────────────────────────────────────────────────
 #  Summary
 # ────────────────────────────────────────────────────────────────
-
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
-endif()
 
 message(STATUS "Project:      ${PROJECT_NAME} ${PROJECT_VERSION}")
 message(STATUS "C++ standard: C++${CMAKE_CXX_STANDARD}")
