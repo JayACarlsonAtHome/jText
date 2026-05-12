@@ -131,6 +131,9 @@ auto format_value(const T& v) -> std::string
     else if constexpr (has_to_string<Bare>) {
         return v.to_string();
     }
+    else if constexpr (has_adl_to_string<Bare>) {
+        return std::string{to_string(v)};
+    }
     else if constexpr (streamable<Bare>) {
         std::ostringstream oss;
         oss << v;

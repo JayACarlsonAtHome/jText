@@ -1,6 +1,6 @@
 # jText — Format Specification
 
-**Version:** 0.4 (draft)
+**Version:** 0.5 (draft)
 **Status:** Working draft — line grammar locked; file/section structure proposed
 **License:** Apache-2.0 (matches the jText project)
 
@@ -374,9 +374,8 @@ If the data **does not contain the separator character**, it is treated as a **f
 
 - **Leading separator** → cosmetic, ignored. `/A/B/C` → `["A", "B", "C"]`
 - **Trailing separator** → cosmetic, ignored. `A/B/C/` → `["A", "B", "C"]`
-- **Internal empty segment** → **structural validation error**. `A//B` → invalid.
 - **Whitespace around segments** → trimmed. `A / B / C` → `["A", "B", "C"]`
-- **Data that is only separators after trimming** → **structural validation error**. `///` → invalid.
+- **Empty segment anywhere in the hierarchy** → **structural validation error**. There is no meaningful interpretation of a nameless level in a hierarchy. This rule covers internal empty segments (`A//B`), all-separator data (`///`), and whitespace-only segments (`A/ /B`) uniformly.
 
 ### 3.4 Whitespace Handling
 
@@ -599,7 +598,7 @@ Structural rules govern parseability. A file that violates structural rules cann
 Structural errors include:
 
 - Malformed formatters (Section 3.1)
-- Internal empty segments in hierarchies (Section 3.3)
+- Empty segments in hierarchies (Section 3.3)
 - Line numbers outside the range 1–99 (Section 3.7)
 - Unmatched multiline sentinels (Section 5.2)
 - Mismatched or impossible structural markers (Section 2)
@@ -875,7 +874,12 @@ All other open questions from earlier drafts have been resolved.
 
 ## 11. Changelog
 
-**v0.4** (current)
+**v0.5** (current)
+- Section 3.3: unified "empty hierarchy segment" rule — the previous treatment that distinguished "internal empty segment" from "data that is only separators" has been collapsed into a single rule. An empty segment anywhere in a hierarchy is a structural error, because there is no meaningful interpretation of a nameless level. Implementation simplified accordingly.
+- Section 6.1: updated error list to reference the unified rule.
+- No other changes from v0.4.
+
+**v0.4**
 - Reframed jText as a file format rather than a library or tool
 - Operations (Save/Validate/Write) described conceptually, not as method names
 - Added Section 3.7: line-number padding (1–99 range, right-aligned to 2 columns)
@@ -908,4 +912,4 @@ All other open questions from earlier drafts have been resolved.
 
 ---
 
-*End of jText Specification v0.4 (draft).*
+*End of jText Specification v0.5 (draft).*

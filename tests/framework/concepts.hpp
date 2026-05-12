@@ -37,6 +37,19 @@ concept has_to_string = requires(const T& t) {
 };
 
 // ──────────────────────────────────────────────────────────────
+//  has_adl_to_string
+//  T has a free to_string(T) function findable via ADL that returns
+//  something convertible to std::string (or std::string_view).
+//  Used so enums and other types can opt in to readable rendering
+//  by providing a non-member to_string in their namespace.
+// ──────────────────────────────────────────────────────────────
+
+template <typename T>
+concept has_adl_to_string = requires(const T& t) {
+    { to_string(t) } -> std::convertible_to<std::string_view>;
+};
+
+// ──────────────────────────────────────────────────────────────
 //  streamable
 //  T can be written to a std::ostream with operator<<.
 //  Covers all built-in arithmetic types, strings, and anything
