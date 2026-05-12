@@ -1,26 +1,31 @@
 // File: tests/manual/main.cpp
 //
-// Session 1 entry point. Calls each test-category's registration
-// function (just one of them in Session 1) and prints a summary.
+// Session 2 entry point.
 //
-// As more tests are added, the body of main() grows by one or two
-// lines per category — the registration list is part of the
-// documentation of what's tested.
+// Creates a suite, registers all test categories with it, then hands off
+// to suite::run(argc, argv) which:
+//   - parses command-line arguments (--verbose, --quiet, --report=...)
+//   - executes each test in registration order
+//   - prints per-test output to stdout per verbosity settings
+//   - writes a detailed test_report.log file
+//   - returns 0 if all passed, 1 if any failed
+//
+// Adding a new test category means:
+//   1. #include the category header below
+//   2. Call its register_*_tests() function with the suite
 
-#include "framework/assertion.hpp"
+#include "framework/runner.hpp"
+
 #include "categories/meta_basic.hpp"
 
-int main()
+int main(int argc, char* argv[])
 {
-    using namespace jtext::test;
+    jtext::test::suite s;
 
-    std::println("══════════════════════════════════════════");
-    std::println(" jText test framework — meta self-test");
-    std::println("══════════════════════════════════════════");
+    // Register all test categories.
+    register_meta_basic_tests(s);
 
-    // Session 1: just the framework's self-tests.
-    // Session 3+ will add parser, validator, emitter test categories here.
-    run_meta_basic_tests();
+    // Session 3+: parser, validator, emitter test categories registered here.
 
-    return print_summary();
+    return s.run(argc, argv);
 }

@@ -1,22 +1,20 @@
 // File: tests/framework/assertion.hpp
 //
-// Assertion functions used inside test bodies. These record their results
-// into a per-thread test context that the runner reads when summarizing
-// each test's outcome.
+// Assertion functions used inside test bodies.
 //
-// Session 1 establishes the basic vocabulary:
-//   test_eq(actual, expected)        — equality
-//   test_ne(actual, expected)        — inequality
-//   test_true(condition)             — boolean truthy
-//   test_false(condition)            — boolean falsy
+// Session 2 changes from Session 1:
+//   - Each assertion produces an assertion_log record (captured for
+//     the report file)
+//   - The runner sets a per-test "current sink" that assertions write to
+//   - stdout output respects the runner's verbose/quiet flags
+//   - The Session 1 begin_test/end_test/print_summary functions are
+//     gone — the runner takes over their responsibilities
 //
-// Each assertion captures the call site via std::source_location, so no
-// macros are needed. The framework reports each check with file:line and
-// the formatted expected/actual values.
-//
-// Session 1 has a minimal "context" — just a thread-local pair of counters
-// (passed and failed). Session 2 introduces the full runner that owns
-// the context and produces structured reports.
+// Public API (unchanged from Session 1):
+//   test_eq(actual, expected)
+//   test_ne(actual, expected)
+//   test_true(condition)
+//   test_false(condition)
 
 #pragma once
 
@@ -29,77 +27,132 @@
 #include <source_location>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace jtext::test {
 
 // ──────────────────────────────────────────────────────────────
-//  Per-thread test context (Session 1 minimal version).
-//
-//  This is a small thread-local struct that holds counters and the
-//  identity of the currently-running test. Assertion functions write
-//  to it; the runner reads from it.
-//
-//  Session 2 replaces this with a richer Context that captures
-//  individual assertion records for report-file generation.
+//  assertion_log
+//  One record per assertion. The reporter consumes these to produce
+//  the detailed section of the report file.
 // ──────────────────────────────────────────────────────────────
 
-struct context {
-    std::size_t  passed       = 0;
-    std::size_t  failed       = 0;
-    std::string  current_test = "<no test running>";
-    bool         verbose      = true;   // print each assertion to stdout
+struct assertion_log {
+    bool         passed       = false;
+    std::string  kind;          // "test_eq", "test_ne", etc.
+    std::string  type_name;     // type of the values being compared
+    std::string  expected_str;  // formatted expected value
+    std::string  actual_str;    // formatted actual value
+    std::string  file;          // source file
+    unsigned     line  = 0;     // source line
 };
 
-inline auto current_context() -> context&
-{
-    thread_local context ctx;
-    return ctx;
-}
-
 // ──────────────────────────────────────────────────────────────
-//  Internal: report a single check result.
+//  sink — where assertion results go.
+//  The runner sets the current sink before each test runs, then
+//  reads back the accumulated assertions when the test completes.
 //
-//  Session 1 just prints. Session 2 will also append a structured
-//  record to the context's assertion log for the report file.
+//  Outside a runner (e.g., manual experimentation), a thread-local
+//  fallback sink catches assertions; useful for ad-hoc debugging.
 // ──────────────────────────────────────────────────────────────
+
+struct sink {
+    std::vector<assertion_log>  log;
+    std::size_t                 passed  = 0;
+    std::size_t                 failed  = 0;
+    bool                        verbose = false;  // print PASS lines too
+    bool                        quiet   = false;  // no stdout at all
+};
 
 namespace detail {
 
+// Per-thread pointer to the active sink. The runner sets this before
+// invoking each test; assertion functions read it.
+inline auto active_sink_ptr() -> sink*&
+{
+    thread_local sink* p = nullptr;
+    return p;
+}
+
+// Thread-local fallback sink, used when no runner is active.
+inline auto fallback_sink() -> sink&
+{
+    thread_local sink s;
+    return s;
+}
+
+inline auto current_sink() -> sink&
+{
+    if (auto* p = active_sink_ptr()) {
+        return *p;
+    }
+    return fallback_sink();
+}
+
+// Record one assertion: append to the sink's log, update counters,
+// print to stdout per verbose/quiet flags.
 inline auto record_result(
     bool passed,
     std::string_view kind,
     std::string_view type_str,
-    std::string_view expected_str,
-    std::string_view actual_str,
+    std::string expected_str,
+    std::string actual_str,
     const std::source_location& loc) -> void
 {
-    auto& ctx = current_context();
+    auto& s = current_sink();
+
+    s.log.push_back(assertion_log{
+        .passed       = passed,
+        .kind         = std::string{kind},
+        .type_name    = std::string{type_str},
+        .expected_str = expected_str,
+        .actual_str   = actual_str,
+        .file         = loc.file_name(),
+        .line         = loc.line(),
+    });
+
     if (passed) {
-        ctx.passed += 1;
-        if (ctx.verbose) {
-            std::println("  [PASS] {}:{} ({}) {}",
+        s.passed += 1;
+        if (s.verbose && !s.quiet) {
+            std::println("    [PASS] {}:{} ({}) {}",
                          loc.file_name(),
                          loc.line(),
                          type_str,
                          kind);
         }
     } else {
-        ctx.failed += 1;
-        std::println("  [FAIL] {}:{} ({}) {}",
-                     loc.file_name(),
-                     loc.line(),
-                     type_str,
-                     kind);
-        std::println("         expected: {}", expected_str);
-        std::println("         actual:   {}", actual_str);
+        s.failed += 1;
+        if (!s.quiet) {
+            std::println("    [FAIL] {}:{} ({}) {}",
+                         loc.file_name(),
+                         loc.line(),
+                         type_str,
+                         kind);
+            std::println("           expected: {}", expected_str);
+            std::println("           actual:   {}", actual_str);
+        }
     }
 }
 
 }  // namespace detail
 
 // ──────────────────────────────────────────────────────────────
+//  set_active_sink / clear_active_sink
+//  Used by the runner. Test code should not call these directly.
+// ──────────────────────────────────────────────────────────────
+
+inline auto set_active_sink(sink& s) -> void
+{
+    detail::active_sink_ptr() = &s;
+}
+
+inline auto clear_active_sink() -> void
+{
+    detail::active_sink_ptr() = nullptr;
+}
+
+// ──────────────────────────────────────────────────────────────
 //  test_eq(actual, expected)
-//  Asserts that actual == expected. Records pass/fail.
 // ──────────────────────────────────────────────────────────────
 
 template <typename A, typename E>
@@ -111,18 +164,13 @@ auto test_eq(
 {
     const bool ok = (actual == expected);
     detail::record_result(
-        ok,
-        "test_eq",
-        type_name<A>(),
-        format_value(expected),
-        format_value(actual),
-        loc);
+        ok, "test_eq", type_name<A>(),
+        format_value(expected), format_value(actual), loc);
     return ok;
 }
 
 // ──────────────────────────────────────────────────────────────
 //  test_ne(actual, expected)
-//  Asserts that actual != expected.
 // ──────────────────────────────────────────────────────────────
 
 template <typename A, typename E>
@@ -134,18 +182,14 @@ auto test_ne(
 {
     const bool ok = (actual != expected);
     detail::record_result(
-        ok,
-        "test_ne",
-        type_name<A>(),
+        ok, "test_ne", type_name<A>(),
         std::string{"!= "} + format_value(expected),
-        format_value(actual),
-        loc);
+        format_value(actual), loc);
     return ok;
 }
 
 // ──────────────────────────────────────────────────────────────
 //  test_true(condition)
-//  Asserts that condition is true.
 // ──────────────────────────────────────────────────────────────
 
 inline auto test_true(
@@ -153,18 +197,14 @@ inline auto test_true(
     std::source_location loc = std::source_location::current()) -> bool
 {
     detail::record_result(
-        condition,
-        "test_true",
-        "bool",
-        "true",
-        condition ? "true" : "false",
-        loc);
+        condition, "test_true", "bool",
+        std::string{"true"},
+        std::string{condition ? "true" : "false"}, loc);
     return condition;
 }
 
 // ──────────────────────────────────────────────────────────────
 //  test_false(condition)
-//  Asserts that condition is false.
 // ──────────────────────────────────────────────────────────────
 
 inline auto test_false(
@@ -172,53 +212,10 @@ inline auto test_false(
     std::source_location loc = std::source_location::current()) -> bool
 {
     detail::record_result(
-        !condition,
-        "test_false",
-        "bool",
-        "false",
-        condition ? "true" : "false",
-        loc);
+        !condition, "test_false", "bool",
+        std::string{"false"},
+        std::string{condition ? "true" : "false"}, loc);
     return !condition;
-}
-
-// ──────────────────────────────────────────────────────────────
-//  Begin / end a test by name. Session 1 just updates the context's
-//  current_test field and prints a header. Session 2's runner takes
-//  over this responsibility and adds per-test result aggregation.
-// ──────────────────────────────────────────────────────────────
-
-inline auto begin_test(std::string_view name) -> void
-{
-    auto& ctx = current_context();
-    ctx.current_test = name;
-    std::println("");
-    std::println("──────────────────────────────────────────");
-    std::println(" TEST: {}", name);
-    std::println("──────────────────────────────────────────");
-}
-
-inline auto end_test() -> void
-{
-    // Session 1 no-op. Session 2 will close out the test record here.
-}
-
-// ──────────────────────────────────────────────────────────────
-//  Print final summary. Session 2 replaces this with a full reporter.
-// ──────────────────────────────────────────────────────────────
-
-inline auto print_summary() -> int
-{
-    auto& ctx = current_context();
-    const auto total = ctx.passed + ctx.failed;
-    std::println("");
-    std::println("══════════════════════════════════════════");
-    std::println(" SUMMARY");
-    std::println("══════════════════════════════════════════");
-    std::println("  Total:   {}", total);
-    std::println("  Passed:  {}  {}", ctx.passed, ctx.failed == 0 ? "✓" : "");
-    std::println("  Failed:  {}  {}", ctx.failed, ctx.failed != 0 ? "✗" : "");
-    std::println("══════════════════════════════════════════");
-    return ctx.failed == 0 ? 0 : 1;
 }
 
 }  // namespace jtext::test

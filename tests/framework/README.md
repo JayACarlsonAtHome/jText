@@ -1,9 +1,9 @@
 # jText Test Framework
 
-A small, header-only C++23 test framework written for the jText project.
-It lives inside the jText repository for now but has no dependencies on
-jText code — it's designed to be extracted into a standalone project
-later if reuse demands it.
+A small C++23 test framework written for the jText project. It lives
+inside the jText repository but has no dependencies on jText code —
+it's designed to be extracted into a standalone project later if reuse
+demands it.
 
 ## Design Goals
 
@@ -11,28 +11,29 @@ later if reuse demands it.
   per-type via compile-time concept dispatch
 - **No macros**: assertions are plain function calls; call sites are
   captured via `std::source_location`
-- **No registration magic**: tests are explicit function calls in a
-  `main()` coordinator. What you see is what runs.
-- **Plain text output**: results go to stdout (Session 1) and a report
-  file (Session 2); no JSON, no structured formats
-- **Small**: target ~600 lines total when the framework is complete
+- **Explicit registration**: tests are registered with the suite by name
+  in `main()`. What you see is what runs.
+- **Plain text output**: terminal output to stdout, optional report file;
+  no JSON, no structured formats
+- **Small**: framework code is ~700 lines total
 
 ## Status
 
-### Session 1 (current)
+### Session 1 (complete)
 
 - `concepts.hpp` — type concepts for dispatch
 - `type_name.hpp` — compile-time type name extraction
 - `format_value.hpp` — render any value as a human-readable string
 - `assertion.hpp` — `test_eq`, `test_ne`, `test_true`, `test_false`
 
-The framework is header-only at this stage. Output goes to stdout.
+### Session 2 (complete)
 
-### Session 2 (planned)
-
-- `runner.hpp` / `runner.cpp` — test registration and orchestration
-- `reporter.hpp` / `reporter.cpp` — generates a structured report file
-- `meta_test.cpp` becomes a richer self-test suite
+- `runner.hpp` / `runner.cpp` — suite class, test registration, argv parsing
+- `reporter.hpp` / `reporter.cpp` — generates `test_report.log` with
+  summary + details
+- Updated `assertion.hpp` — assertions write to per-test sinks via the
+  runner, captured for the report file
+- Updated `meta_basic.hpp` — uses explicit registration style
 
 ### Session 3+ (planned)
 
@@ -42,26 +43,36 @@ The framework is header-only at this stage. Output goes to stdout.
 ## Usage Example
 
 ```cpp
-#include "framework/assertion.hpp"
+#include "framework/runner.hpp"
 
-using namespace jtext::test;
-
-int main()
+int main(int argc, char* argv[])
 {
-    begin_test("integer equality");
-    test_eq(1 + 1, 2);
-    test_eq(7 * 6, 42);
-    end_test();
+    jtext::test::suite s;
 
-    begin_test("string handling");
-    std::string greeting = "hello";
-    test_eq(greeting, std::string{"hello"});
-    test_ne(greeting, std::string{"goodbye"});
-    end_test();
+    s.add("integer equality", [] {
+        jtext::test::test_eq(1 + 1, 2);
+        jtext::test::test_eq(7 * 6, 42);
+    });
 
-    return print_summary();
+    s.add("string handling", [] {
+        std::string greeting{"hello"};
+        jtext::test::test_eq(greeting, std::string{"hello"});
+        jtext::test::test_ne(greeting, std::string{"goodbye"});
+    });
+
+    return s.run(argc, argv);
 }
 ```
+
+## Command-Line Flags
+
+| Flag                | Effect                                             |
+|---------------------|----------------------------------------------------|
+| `-h`, `--help`      | Print usage and exit                               |
+| `-v`, `--verbose`   | Print every PASS line (default: only FAIL)         |
+| `-q`, `--quiet`     | Suppress all stdout (exit code still reflects pass/fail) |
+| `--no-report`       | Skip writing the report file                       |
+| `--report=PATH`     | Write report to PATH instead of `test_report.log`  |
 
 ## Assertion Vocabulary
 
@@ -91,6 +102,44 @@ compile-time concepts to pick the right strategy:
 | container               | `[elem1, elem2, elem3]` (recursive)        |
 | anything else           | `<TypeName at 0xADDR>`                      |
 
+## Report File Format
+
+A typical `test_report.log` has two sections:
+
+```
+================================================================
+ jText Test Report
+================================================================
+Date:      2026-05-12 09:42:17
+Tests:     14   (passed: 13, failed: 1)
+Asserts:   38   (passed: 36, failed: 2)
+
+Failed tests:
+  - INTENTIONAL FAILURES   (2 of 2 assertions failed)
+
+================================================================
+ Test Details
+================================================================
+
+----------------------------------------------------------------
+ [PASS]  integer equality (passing)   (3 passed, 0 failed)
+----------------------------------------------------------------
+  [PASS] tests/manual/categories/meta_basic.hpp:32 (int) test_eq
+  [PASS] tests/manual/categories/meta_basic.hpp:33 (int) test_eq
+  [PASS] tests/manual/categories/meta_basic.hpp:34 (int) test_eq
+
+----------------------------------------------------------------
+ [FAIL]  INTENTIONAL FAILURES   (0 passed, 2 failed)
+----------------------------------------------------------------
+  [FAIL] tests/manual/categories/meta_basic.hpp:154 (int) test_eq
+         expected: 2
+         actual:   1
+  ...
+```
+
+The file is greppable: `grep '\[FAIL\]' test_report.log` shows every
+failing assertion with file:line and expected/actual values.
+
 ## Naming Conventions
 
 - Namespace: `jtext::test`
@@ -102,7 +151,7 @@ compile-time concepts to pick the right strategy:
 ## Not Goals
 
 - Not a replacement for Catch2, doctest, or GoogleTest when those fit
-- Not a parallel test runner (tests run sequentially in declaration order)
+- Not a parallel test runner (tests run sequentially in registration order)
 - Not a benchmark framework (use Google Benchmark or equivalent for that)
 - Not extensible via dynamic plugins (extensibility is via concept
   specializations and overloads of `format_value`)
