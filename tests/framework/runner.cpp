@@ -142,10 +142,13 @@ auto suite::run(const runner_config& cfg) -> int
         // Per-test footer line (so failures stand out even without --verbose)
         if (!cfg.quiet) {
             if (s.failed == 0) {
-                std::println("    [PASS] all {} assertions passed", s.passed);
+                std::println("    [PASS] all {} {} passed",
+                             s.passed,
+                             s.passed == 1 ? "assertion" : "assertions");
             } else {
-                std::println("    [FAIL] {} of {} assertions failed",
-                             s.failed, s.passed + s.failed);
+                std::println("    [FAIL] {} of {} {} failed",
+                             s.failed, s.passed + s.failed,
+                             (s.passed + s.failed) == 1 ? "assertion" : "assertions");
             }
         }
 
@@ -179,3 +182,4 @@ auto suite::run(const runner_config& cfg) -> int
 }
 
 }  // namespace jtext::test
+

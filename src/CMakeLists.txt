@@ -7,7 +7,7 @@
 #
 #  Consumers (tests, future tools) link against jtext_core and write:
 #    #include "parser/line.hpp"
-#    #include "parser/section.hpp"   (future)
+#    #include "parser/section.hpp"
 #    #include "validator.hpp"        (future)
 #    #include "emitter.hpp"          (future)
 #
@@ -15,6 +15,7 @@
 
 add_library(jtext_core STATIC
         parser/line.cpp
+        parser/section.cpp
 )
 
 target_include_directories(jtext_core

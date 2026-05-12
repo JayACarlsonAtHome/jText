@@ -1,6 +1,6 @@
 # jText — Format Specification
 
-**Version:** 0.5 (draft)
+**Version:** 0.6 (draft)
 **Status:** Working draft — line grammar locked; file/section structure proposed
 **License:** Apache-2.0 (matches the jText project)
 
@@ -135,9 +135,11 @@ A section consists of (in order):
 
 1. A **section banner** — `=== Section: <name> ===`
 2. **Zero or more templates** — `=== Template: <name> ===` followed by a multiline block (Section 2.5)
-3. A **fields block** — `=== Fields ===` followed by field declaration lines
+3. A **fields block** — `=== Fields ===` followed by field declaration lines *(required if the section has a data block)*
 4. A **data block** — `=== Data ===` followed by data lines, terminated by `=== End Data ===`
 5. A **section terminator** — `=== End Section ===` (optional)
+
+**Structural rule:** the fields block is required whenever the data block is present. A section that opens a data block without first declaring its fields is a **structural validation error** — line numbers within the data block reference field positions declared in the fields block, so a data block without a fields block has no meaningful interpretation. A section with neither a fields block nor a data block (containing only templates, or completely empty) is structurally permissible but semantically unusual; the validator may surface it as a warning.
 
 Section names within a file **should be unique**. Duplicate section names produce a **warning** during validation but do not block parsing, saving, or use. How duplicates are interpreted (last-wins, first-wins, merge, error) is a consumer-side decision.
 
@@ -602,6 +604,7 @@ Structural errors include:
 - Line numbers outside the range 1–99 (Section 3.7)
 - Unmatched multiline sentinels (Section 5.2)
 - Mismatched or impossible structural markers (Section 2)
+- Data block in a section without a preceding fields block (Section 2.3)
 - Template placeholders referencing field numbers outside the section's field range (Section 2.5)
 
 **Unknown structural markers** (e.g., a future `=== Manifest: foo ===` marker that this spec version does not define) produce a **warning** rather than an error. The parser skips the unrecognized section and continues. This preserves forward compatibility.
@@ -874,7 +877,12 @@ All other open questions from earlier drafts have been resolved.
 
 ## 11. Changelog
 
-**v0.5** (current)
+**v0.6** (current)
+- Section 2.3: tightened wording to make the fields block requirement explicit. A data block without a preceding fields block is now formally a structural validation error (it was previously implied but not stated; implementations were ambiguous about whether to reject it or defer to the semantic validator).
+- Section 6.1: added the new structural error to the list.
+- No other changes from v0.5.
+
+**v0.5**
 - Section 3.3: unified "empty hierarchy segment" rule — the previous treatment that distinguished "internal empty segment" from "data that is only separators" has been collapsed into a single rule. An empty segment anywhere in a hierarchy is a structural error, because there is no meaningful interpretation of a nameless level. Implementation simplified accordingly.
 - Section 6.1: updated error list to reference the unified rule.
 - No other changes from v0.4.
@@ -912,4 +920,5 @@ All other open questions from earlier drafts have been resolved.
 
 ---
 
-*End of jText Specification v0.5 (draft).*
+*End of jText Specification v0.6 (draft).*
+

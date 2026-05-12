@@ -76,9 +76,11 @@ auto write_report(
         out << "\nFailed tests:\n";
         for (const auto& r : results) {
             if (r.failed > 0) {
+                const auto total = r.passed + r.failed;
                 out << "  - " << r.name
-                    << " (" << r.failed << " of " << (r.passed + r.failed)
-                    << " assertions failed)\n";
+                    << " (" << r.failed << " of " << total << " "
+                    << (total == 1 ? "assertion" : "assertions")
+                    << " failed)\n";
             }
         }
     }
@@ -141,8 +143,10 @@ auto print_terminal_summary(
         std::println("  Failed tests:");
         for (const auto& r : results) {
             if (r.failed > 0) {
-                std::println("    ✗ {}  ({} of {} assertions failed)",
-                             r.name, r.failed, r.passed + r.failed);
+                const auto total = r.passed + r.failed;
+                std::println("    ✗ {}  ({} of {} {} failed)",
+                             r.name, r.failed, total,
+                             total == 1 ? "assertion" : "assertions");
             }
         }
     } else {
@@ -158,3 +162,4 @@ auto print_terminal_summary(
 }
 
 }  // namespace jtext::test
+

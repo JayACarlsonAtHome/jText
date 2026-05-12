@@ -1,7 +1,6 @@
 // File: tests/manual/main.cpp
 //
-// Entry point: registers framework self-tests AND the line-grammar
-// parser tests with the suite, then runs them.
+// Entry point: registers all test categories with the suite, then runs them.
 //
 // Adding a new test category:
 //   1. #include its category header below
@@ -11,6 +10,7 @@
 
 #include "categories/meta_basic.hpp"
 #include "categories/parser_basic.hpp"
+#include "categories/section_basic.hpp"
 
 int main(int argc, char* argv[])
 {
@@ -22,8 +22,10 @@ int main(int argc, char* argv[])
     // jText line-grammar parser tests.
     register_parser_basic_tests(s);
 
-    // Section parser, file parser, validator, emitter test categories
-    // register here as they come online.
+    // jText file/section structure parser tests.
+    register_section_basic_tests(s);
+
+    // Validator, emitter test categories register here as they come online.
 
     return s.run(argc, argv);
 }
