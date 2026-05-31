@@ -52,6 +52,16 @@ auto is_blank(std::string_view sv) -> bool
     return true;
 }
 
+auto is_standard_header_comment(std::string_view sv) -> bool
+{
+    auto s = trim(strip_eol(sv));
+    return s.starts_with("//File Name:") ||
+           s.starts_with("//Origin Date:") ||
+           s.starts_with("//Modified Date:") ||
+           s.starts_with("// Related Database") ||
+           s.starts_with("// Related Table");
+}
+
 auto err(file_error_kind k, std::size_t line_no, std::string msg)
     -> std::unexpected<file_error>
 {
@@ -269,16 +279,37 @@ auto build_one_section(
     section_state state = section_state::reading_intro;
     bool fields_block_seen = false;
 
+    // Strip a trailing blank sentinel from data_lines (used at section
+    // exit points). Blank lines at the very end of a data block are
+    // visual whitespace, not record separators with nothing on the
+    // far side.
+    auto trim_trailing_blank = [&]() {
+        if (!sec.data_lines.empty() && sec.data_lines.back().number == 0) {
+            sec.data_lines.pop_back();
+        }
+    };
+
     while (cursor < lines.size()) {
         const auto& raw = lines[cursor];
         const auto stripped = strip_eol(raw);
         const auto line_no = cursor + 1;  // 1-based
 
-        // Blank lines: in data block they're significant (record
-        // separators), but at this layer we just skip them; record
-        // boundaries are inferred semantically by the validator.
-        // For symmetry across states, ignore them everywhere here.
+        // Blank lines: in the data block they're significant — they
+        // separate records. We preserve them as sentinel parsed_line
+        // entries (number == 0) so the validator can detect record
+        // boundaries. In other states (intro, fields, after_data),
+        // blank lines are ignored.
         if (is_blank(stripped)) {
+            if (state == section_state::reading_data) {
+                // Only emit one blank sentinel between consecutive blanks
+                // (consecutive blanks compress to one record-separator).
+                if (sec.data_lines.empty() || sec.data_lines.back().number != 0) {
+                    parsed_line blank{};
+                    blank.kind   = line_kind::data;
+                    blank.number = 0;
+                    sec.data_lines.push_back(blank);
+                }
+            }
             ++cursor;
             continue;
         }
@@ -291,14 +322,17 @@ auto build_one_section(
             if (auto next_name = extract_section_name(interior); !next_name.empty()) {
                 // New section begins → end of current section (implicit).
                 // Do NOT advance cursor; caller will see this banner.
+                trim_trailing_blank();
                 return sec;
             }
             if (marker_is_end_file(interior)) {
                 // End of file → end of current section (implicit).
+                trim_trailing_blank();
                 return sec;
             }
             if (marker_is_end_section(interior)) {
                 ++cursor;
+                trim_trailing_blank();
                 return sec;
             }
 
@@ -379,6 +413,7 @@ auto build_one_section(
 
             if (state == section_state::reading_data) {
                 if (marker_is_end_data(interior)) {
+                    trim_trailing_blank();
                     state = section_state::after_data;
                     ++cursor;
                     continue;
@@ -449,6 +484,7 @@ auto build_one_section(
     // semantically odd to end in reading_intro/reading_fields, but
     // structurally permissible (no actual section content). We let
     // this through; validator can warn.
+    trim_trailing_blank();
     return sec;
 }
 
@@ -460,9 +496,16 @@ auto build_from_lines(const std::vector<std::string>& lines)
     std::size_t cursor = 0;
 
     // 1. Find and consume the magic line.
-    while (cursor < lines.size() && is_blank(strip_eol(lines[cursor]))) {
-        ++cursor;
+    // Skip leading blank lines and the new standard // header comment block.
+    while (cursor < lines.size()) {
+        const auto stripped = strip_eol(lines[cursor]);
+        if (is_blank(stripped) || is_standard_header_comment(stripped)) {
+            ++cursor;
+            continue;
+        }
+        break;
     }
+
     if (cursor >= lines.size()) {
         return err(file_error_kind::missing_magic_line, 0,
                    "file is empty or contains only whitespace");

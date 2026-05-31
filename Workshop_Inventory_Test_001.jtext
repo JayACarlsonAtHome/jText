@@ -1,0 +1,27 @@
+# JText File - created 2026-05-05
+# Filename: Workshop_Inventory_Test_001.jtext
+# Purpose - Jay's workshop inventory
+# Case: INSENSITIVE
+# SQL Dialect: PostGreSQL
+# Table Name: Workshop_Inventory_Test_001
+# AutoID: yes
+# Note: Field types are user-defined and not validated. The SQL generator will use them as provided.
+
+Field List
+1. # Category     # varchar(50)
+2. # Item         # varchar(100)
+3. # Quantity     # int
+
+Data Section
+1. #^# Tools^Power Tools^Cordless Drill # 18V lithium-ion, needs charger
+2. #-# Angle Grinder # 4.5 inch corded
+3. #-# NULL
+4. #^# Storage^Pegboard^Hooks # Heavy duty
+
+-- Quick Notes --
+*** ^^^ ###
+This line can contain # $ ^ | * \ and anything else
+### Special block comment example
+^^^
+
+-- EOF --

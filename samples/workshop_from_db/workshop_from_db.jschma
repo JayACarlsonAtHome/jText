@@ -1,0 +1,10 @@
+//File Name:        workshop_from_db.jschma
+//Origin Date:      2026-05-31
+//Modified Date:    NA
+
+// Related Database --
+// Related Table    --
+
+CREATE TABLE IF NOT EXISTS workshop_tools (
+    psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist TEXT
+);

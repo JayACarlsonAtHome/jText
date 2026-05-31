@@ -61,6 +61,30 @@ add_subdirectory(src)
 add_subdirectory(tests)
 
 # ────────────────────────────────────────────────────────────────
+#  Early prototype tool (jtext_process)
+#  Takes: <data_path> <base_name> <output_file>
+# ────────────────────────────────────────────────────────────────
+
+add_executable(jtext_process
+    src/tool/jtext_process.cpp
+)
+
+target_link_libraries(jtext_process PRIVATE jtext_core)
+
+target_include_directories(jtext_process PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_compile_features(jtext_process PRIVATE cxx_std_23)
+
+add_executable(jtext_retrieve
+    src/tool/jtext_retrieve.cpp
+)
+
+# No link to jtext_core needed yet (it drives psql externally for v1)
+target_include_directories(jtext_retrieve PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_compile_features(jtext_retrieve PRIVATE cxx_std_23)
+
+# ────────────────────────────────────────────────────────────────
 #  Summary
 # ────────────────────────────────────────────────────────────────
 

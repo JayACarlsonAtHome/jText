@@ -1,0 +1,21 @@
+//File Name:        workshop_from_db.jtext
+//Origin Date:      2026-05-31
+//Modified Date:    NA
+
+// Related Database --
+// Related Table    --
+
+=== jText File ===
+ 1. #?# workshop_from_db.jtext
+ 2. #?# 2026-05-31
+ 3. #?# Data retrieved from PostgreSQL table workshop_tools
+
+=== Section: workshop_tools ===
+=== Fields ===
+// (In real use you would use === <#include#> Fields: workshop_from_db.jtFlds ===)
+ 1. #/# psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist/String
+=== Data ===
+// TODO: Run a data query and emit actual records here
+=== End Data ===
+=== End Section ===
+=== End File ===

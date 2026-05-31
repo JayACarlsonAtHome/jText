@@ -11,6 +11,7 @@
 #include "categories/meta_basic.hpp"
 #include "categories/parser_basic.hpp"
 #include "categories/section_basic.hpp"
+#include "categories/validator_basic.hpp"
 
 int main(int argc, char* argv[])
 {
@@ -25,7 +26,11 @@ int main(int argc, char* argv[])
     // jText file/section structure parser tests.
     register_section_basic_tests(s);
 
-    // Validator, emitter test categories register here as they come online.
+    // jText validator tests.
+    register_validator_basic_tests(s);
+
+    // Emitter and other categories will register here as they come online.
 
     return s.run(argc, argv);
 }
+

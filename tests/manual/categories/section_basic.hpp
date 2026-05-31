@@ -129,6 +129,23 @@ inline auto register_section_basic_tests(jtext::test::suite& s) -> void
         if (r) test_eq(r->header_lines.size(), std::size_t{1});
     });
 
+    s.add("file: standard // header comments before magic are tolerated", [] {
+        const std::string_view text =
+            "//File Name:        test.jtFull\n"
+            "//Origin Date:      2026-05-31\n"
+            "//Modified Date:    NA\n"
+            "\n"
+            "// Related Database --\n"
+            "// Related Table    --\n"
+            "\n"
+            "=== jText File ===\n"
+            " 1. #?# test.jtFull\n"
+            "=== End File ===\n";
+        auto r = parse_file_structure(text);
+        test_true(r.has_value());
+        if (r) test_eq(r->header_lines.size(), std::size_t{1});
+    });
+
     // ──────────────────────────────────────────────────────────
     //  Single section, fields + data
     // ──────────────────────────────────────────────────────────
@@ -160,11 +177,14 @@ inline auto register_section_basic_tests(jtext::test::suite& s) -> void
             test_eq(sec.field_lines.size(), std::size_t{2});
             test_eq(sec.field_lines[0].hierarchy[0], std::string{"id"});
             test_eq(sec.field_lines[1].hierarchy[0], std::string{"name"});
-            test_eq(sec.data_lines.size(), std::size_t{4});
+            // 5 data_lines: 2 fields for record 1, blank sentinel
+            // (number == 0), 2 fields for record 2.
+            test_eq(sec.data_lines.size(), std::size_t{5});
             test_eq(sec.data_lines[0].hierarchy[0], std::string{"1"});
             test_eq(sec.data_lines[1].hierarchy[0], std::string{"Hammer"});
-            test_eq(sec.data_lines[2].hierarchy[0], std::string{"2"});
-            test_eq(sec.data_lines[3].hierarchy[0], std::string{"Drill"});
+            test_eq(sec.data_lines[2].number,       0u);  // blank sentinel
+            test_eq(sec.data_lines[3].hierarchy[0], std::string{"2"});
+            test_eq(sec.data_lines[4].hierarchy[0], std::string{"Drill"});
             test_eq(sec.templates.size(), std::size_t{0});
         }
     });
@@ -467,7 +487,8 @@ inline auto register_section_basic_tests(jtext::test::suite& s) -> void
             test_eq(sec.name, std::string{"Hand Tools"});
             test_eq(sec.templates.size(), std::size_t{2});
             test_eq(sec.field_lines.size(), std::size_t{2});
-            test_eq(sec.data_lines.size(), std::size_t{4});
+            // 5 = 2 fields + blank sentinel + 2 fields
+            test_eq(sec.data_lines.size(), std::size_t{5});
         }
     });
 

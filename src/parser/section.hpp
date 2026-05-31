@@ -63,10 +63,11 @@ struct parsed_template {
 //     at this stage; they are simply the parsed_line records
 //     produced by parse_line() for each non-structural line in
 //     the respective block
-//   - blank lines within the data block are NOT recorded in
-//     data_lines; record-boundary inference is the validator's
-//     job. A separate vector tracks the positions if a future
-//     session needs them.
+//   - blank lines within the data block ARE preserved as sentinel
+//     entries (parsed_line with number == 0). They mark record
+//     boundaries for the validator. Consecutive blanks compress
+//     to one sentinel; trailing blanks at the end of the data
+//     block are stripped (visual whitespace, not boundaries).
 //   - data_lines may contain parsed_line records where kind ==
 //     multiline_opener; in those cases, the corresponding entry
 //     in multiline_bodies (indexed by position) holds the raw body

@@ -1,0 +1,9 @@
+//File Name:        workshop_from_db.jtFlds
+//Origin Date:      2026-05-31
+//Modified Date:    NA
+
+// Related Database --
+// Related Table    --
+
+=== Fields ===
+ 1. #/# psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist/String/Nullable

@@ -1,0 +1,146 @@
+//File Name:        workshop_tools.jtFull
+//Origin Date:      2026-05-31
+//Modified Date:    NA
+
+// Related Database --
+// Related Table    --
+
+=== jText File ===
+ 1. #?# workshop_tools.jtFull                     # filename
+ 2. #?# 2026-05-31                                # date
+ 3. #?# Sample workshop tool inventory (fully expanded .jtFull for testing)
+ 4. #?# 0.6                                       # jtext_version
+
+=== Section: Workshop Tools ===
+
+=== Template: Create Table ===
+ 1. <<< !!!CT!!!
+CREATE TABLE IF NOT EXISTS workshop_tools (
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(80) NOT NULL,
+    category    VARCHAR(100) NOT NULL,
+    acquired    DATE,
+    condition   VARCHAR(30) NOT NULL,
+    location    VARCHAR(50),
+    notes       TEXT
+);
+!!!CT!!!
+
+=== Template: SQL Insert ===
+ 1. <<< !!!INS!!!
+-- Use this version when you want to force specific id values
+-- (e.g. data migration with known keys).
+-- For normal inserts with auto-generated ids, prefer the
+-- "SQL Insert - no id" template below.
+INSERT INTO workshop_tools (
+    id,
+    name,
+    category,
+    acquired,
+    condition,
+    location,
+    notes
+) VALUES (
+    {1},
+    {2},
+    {3},
+    {4},
+    {5},
+    {6},
+    {7}
+);
+!!!INS!!!
+
+=== Template: SQL Insert - no id ===
+ 1. <<< !!!INS2!!!
+INSERT INTO workshop_tools (
+    name,
+    category,
+    acquired,
+    condition,
+    location,
+    notes
+) VALUES (
+    {2},
+    {3},
+    {4},
+    {5},
+    {6},
+    {7}
+);
+!!!INS2!!!
+
+=== Fields ===
+ 1. #/# id/Number/Not Null                  # primary key
+ 2. #/# name/String/80/Not Null             # tool name
+ 3. #/# category/String/100/Not Null        # hierarchical category
+ 4. #/# acquired/Date/Nullable              # purchase date if known
+ 5. #/# condition/String/30/Not Null        # new/good/fair/poor
+ 6. #/# location/String/50/Nullable         # where the tool lives
+ 7. #/# notes/String/Nullable               # free text notes
+
+=== Data ===
+ 1. #?# 1
+ 2. #?# Stanley Hammer 16oz
+ 3. #/# Hand Tools/Hammers/Claw
+ 4. #?# 2019-04-12
+ 5. #?# good
+ 6. #?# Bench pegboard
+ 7. #?# Fiberglass handle, still solid
+
+ 1. #?# 2
+ 2. #?# DeWalt Drill DCD777
+ 3. #/# Power Tools/Drills/Cordless
+ 4. #?# 2022-11-30
+ 5. #?# good
+ 6. #?# Red cabinet, top shelf
+ 7. #?# 20V MAX, brushless, 2 batteries
+
+ 1. #?# 3
+ 2. #?# Klein Screwdriver Set
+ 3. #/# Hand Tools/Screwdrivers/Sets
+ 5. #?# fair
+ 6. #?# Blue drawer #4
+ 7. #?# 11-piece, magnetic tips, one missing
+
+ 1. #?# 4
+ 2. #?# Milwaukee M18 Circular Saw
+ 3. #/# Power Tools/Saws/Circular
+ 4. #?# 2021-07-15
+ 5. #?# good
+ 6. #?# Red cabinet, middle shelf
+ 7. #?# 6-1/2 inch, good for trim work
+
+ 1. #?# 5
+ 2. #?# Irwin Quick-Grip Clamps (pair)
+ 3. #/# Hand Tools/Clamps/Bar
+ 5. #?# excellent
+ 6. #?# Bench pegboard
+ 7. #?# 6 inch and 12 inch
+
+ 1. #?# 6
+ 2. #?# Ryobi Orbital Sander
+ 3. #/# Power Tools/Sanders/Orbital
+ 4. #?# 2020-03-08
+ 5. #?# fair
+ 6. #?# Lower cabinet
+ 7. #?# Needs new sanding pads, motor still strong
+
+ 1. #?# 7
+ 2. #?# Lufkin Tape Measure 25ft
+ 3. #/# Measuring/Tapes
+ 5. #?# good
+ 6. #?# Apron pocket usually
+ 7. #?# 
+
+ 1. #?# 8
+ 2. #?# Wera Hex Key Set (metric)
+ 3. #/# Hand Tools/Allen Keys/Sets
+ 4. #?# 2023-09-22
+ 5. #?# excellent
+ 6. #?# Small red pouch
+ 7. #?# Color coded, very nice set
+
+=== End Data ===
+=== End Section ===
+=== End File ===
