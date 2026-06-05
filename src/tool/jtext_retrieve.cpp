@@ -30,6 +30,8 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
+#include <format>
 
 namespace fs = std::filesystem;
 
@@ -78,14 +80,23 @@ static std::string map_pg_type_to_jtext(const std::string& pg) {
     return "String";
 }
 
-static std::string make_header(const std::string& filename) {
-    std::ostringstream h;
-    h << "//File Name:        " << filename << "\n";
-    h << "//Origin Date:      2026-05-31\n";
-    h << "//Modified Date:    NA\n\n";
-    h << "// Related Database --\n";
-    h << "// Related Table    --\n\n";
-    return h.str();
+static std::string make_header(const std::string& filename,
+                                  std::string_view purpose,
+                                  std::string_view related = {}) {
+    auto now = std::chrono::system_clock::now();
+    auto today = std::chrono::floor<std::chrono::days>(now);
+    std::string date_str = std::format("{:%Y-%m-%d}", today);
+
+    std::string h = std::format(
+        "//File:    {}\n"
+        "//Date:    {}\n"
+        "//Purpose: {}\n",
+        filename, date_str, purpose);
+    if (!related.empty()) {
+        h += std::format("//Related: {}\n", related);
+    }
+    h += "//\n";
+    return h;
 }
 
 int main(int argc, char** argv) {
@@ -134,6 +145,16 @@ int main(int argc, char** argv) {
 
     std::cout << "Retrieving structure for table: " << table_name << "\n";
 
+    // For the standardized top header (and internal content)
+    // Compact single-line form per project convention:
+    //   //Related: type=PostgreSQL table=workshop_tools
+    // (db= can be added if PGDATABASE etc. is known)
+    std::string related = std::format("type=PostgreSQL table={}", table_name);
+
+    auto now0 = std::chrono::system_clock::now();
+    auto today0 = std::chrono::floor<std::chrono::days>(now0);
+    std::string date_str = std::format("{:%Y-%m-%d}", today0);
+
     // 3. Get column metadata - use a clean COPY to get one line per column
     std::string meta_sql =
         "COPY (SELECT column_name || E'\\t' || data_type || E'\\t' || is_nullable "
@@ -173,7 +194,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jschma");
         std::ofstream out(f);
-        out << make_header(base + ".jschma");
+        out << make_header(base + ".jschma", "SQL Schema File", related);
         out << "CREATE TABLE IF NOT EXISTS " << table_name << " (\n";
         for (size_t i = 0; i < columns.size(); ++i) {
             const auto& c = columns[i];
@@ -201,7 +222,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtFlds");
         std::ofstream out(f);
-        out << make_header(base + ".jtFlds");
+        out << make_header(base + ".jtFlds", "jText Field List File", related);
         out << "=== Fields ===\n";
         for (size_t i = 0; i < columns.size(); ++i) {
             const auto& c = columns[i];
@@ -216,7 +237,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtinsrt");
         std::ofstream out(f);
-        out << make_header(base + ".jtinsrt");
+        out << make_header(base + ".jtinsrt", "jText Data File", related);
         out << "=== Template: SQL Insert ===\n";
         out << " 1. <<< !!!INS!!!\n";
         out << "INSERT INTO " << table_name << " (\n";
@@ -240,10 +261,10 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtext");
         std::ofstream out(f);
-        out << make_header(base + ".jtext");
+        out << make_header(base + ".jtext", "jText Data File", related);
         out << "=== jText File ===\n";
         out << " 1. #?# " << base << ".jtext\n";
-        out << " 2. #?# 2026-05-31\n";
+        out << " 2. #?# " << date_str << "\n";
         out << " 3. #?# Data retrieved from PostgreSQL table " << table_name << "\n";
         out << "\n";
         out << "=== Section: " << table_name << " ===\n";

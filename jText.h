@@ -15,9 +15,9 @@ struct JTextEntry {
     size_t number = 0;
     char delimiter = '#';
     char level_sep = 0;           // 0 = flat, otherwise separator char
-    std::vector<std::string> fields;
+    std::vector<std::optional<std::string>> fields;  // nullopt = null value; for compact ts_store, null is encoded as \x1F when writing
     std::string comment;
-    bool is_null = false;
+    bool is_null = false;  // legacy per-entry
     bool is_special_block = false;
 };
 
@@ -152,4 +152,29 @@ private:
     // Auto-batching state
     size_t auto_batch_size_ = 0;
     std::vector<std::string> pending_batch_;   // stores pre-formatted lines for cheaper storage & faster flush
+
+    // For emitting leading standardized // comment header (File Name etc) on path-based construction
+    std::string source_path_;
 };
+
+// Writes the required standardized leading // comment header for
+// self-describing files (jText data, jText field lists, SQL schemas, binary data, etc).
+// Always uses // comments. Call this before writing any data or jText's own # headers.
+// The produced block is (keys chosen for brevity + colons for consistency; values aligned):
+//
+//   //File:    <full-or-relative-path>
+//   //Date:    YYYY-MM-DD
+//   //Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
+//   //Related: type=PostgreSQL table=workshop_tools   (optional, if origin known)
+//
+// The leading // lines are comments and are skipped by parsers when looking for
+// the internal "=== jText File ===" magic or structured header fields.
+// Use of the optional Related line provides quick human provenance when
+// inspecting raw files with head/cat, and makes jText a consistent,
+// self-documenting interchange format across projects.
+//
+// Data...
+void write_file_comment_header(std::ostream& os,
+                               std::string_view full_path,
+                               std::string_view purpose,
+                               std::string_view related = {});

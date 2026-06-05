@@ -1,3 +1,7 @@
+//File:    /home/jay/git/jText/README.md
+//Date:    2026-06-05
+//Purpose: README for jText Format and Tools
+//
 # jText
 
 **A plain-text file format for structured tabular records.**
@@ -12,6 +16,10 @@ jText is a text format for storing structured records — the kind of data you'd
 A small example. Here's an inventory of personal tools, in jText:
 
 ```
+//File:    tools.jText
+//Date:    2026-06-05
+//Purpose: jText Data File
+//
 === jText File ===
  1. #?# tools.jText                       # filename
  2. #?# 2026-05-11                        # date
@@ -217,6 +225,10 @@ A: It's the heart of the format. Those three characters declare, for that line o
 
 **Q: How is this related to ts_store?**
 A: [ts_store](https://github.com/JayACarlsonAtHome/ts_store) is a multithreaded ordered logging library by the same author. jText is the natural plain-text format for ts_store's output: humans can read the logs, tools can validate them, and the same file can be loaded into a SQL database when bulk analysis is needed. The two projects are designed to work together but are independently useful.
+
+ts_store emits a compact data row form for efficiency:
+`<recid>. #|# f1|f2|...`
+using `|` as field separator and `\x1F` (ASCII Unit Separator) as the embedded null marker (`|\x1F|` for null, `||` for empty string). jText tools and the parser fully support this variant (see SPEC.md §2.6.3).
 
 **Q: Will jText files always be parseable by future versions of jText?**
 A: Yes. The `jtext_version` field in the file header pins each file to its spec version. Backward compatibility is a core principle of future-feature design.

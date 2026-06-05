@@ -14,6 +14,7 @@
 # ────────────────────────────────────────────────────────────────
 
 add_library(jtext_core STATIC
+        ../jText.cpp
         parser/line.cpp
         parser/section.cpp
         validator/validator.cpp

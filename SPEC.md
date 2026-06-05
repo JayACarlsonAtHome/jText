@@ -1,3 +1,7 @@
+//File:    /home/jay/git/jText/SPEC.md
+//Date:    2026-06-05
+//Purpose: Specification for jText File Format
+//
 # jText — Format Specification
 
 **Version:** 0.6 (draft)
@@ -81,6 +85,20 @@ End-of-section, end-of-data, and end-of-file markers are **recommended for clari
 
 The first non-blank line of a jText file is always `=== jText File ===`. This serves as the format's de facto magic number: tools that content-sniff files can recognize jText by this line regardless of file extension.
 
+**Filesystem header convention (recommended for all jText companion files):** All `.jtext`, `.jtFlds`, `.jtinsrt`, `.jschma`, and generated `.sql` sidecars emitted by tools or writers should begin with these lines (before any internal `===` or `#` content). The first three + blank are **required**; the Related line is **optional but strongly encouraged** when the origin is known (especially for DB roundtrips and event logs):
+
+```
+//File:    <full-or-relative-path>
+//Date:    YYYY-MM-DD
+//Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
+//Related: type=PostgreSQL table=workshop_tools   (optional)
+//
+```
+
+The compact `//Related: type=... db=... table=...` form (user-specified convention) is a single line, easy to grep (`^//Related`), extensible with more keys, and replaces the older ad-hoc "Related Database --" / "Related Table --" style with something clean and consistent.
+
+This makes every file self-describing at a glance (e.g. `head *.jtext` or `head *.jschma`), works cleanly in git diffs, and provides a consistent example across projects (ts_store, jacQLite, jText itself). The leading `//` lines are treated as comments and skipped by parsers in header areas. Use the structured fields inside the `=== jText File ===` block (table_name, sql_dialect, related_files, ...) for machine-readable metadata; the top wrapper is primarily for humans + quick scanning.
+
 ### 2.1 Character Encoding
 
 jText files are **UTF-8 encoded**.
@@ -112,6 +130,11 @@ Additional fields beyond this list are allowed and preserved by parsers; consume
 #### 2.2.1 File Header Example
 
 ```
+//File:    robot_arm_run_47.jText
+//Date:    2026-05-11
+//Purpose: jText Data File
+//Related: type=PostgreSQL table=arm_events
+//
 === jText File ===
  1. #?# robot_arm_run_47.jText            # filename
  2. #?# 2026-05-11                        # date
@@ -281,6 +304,26 @@ These states are **semantically distinct** for `String` fields and **semanticall
 For `Not Null` fields, both empty and missing are **semantic validation errors** regardless of type.
 
 The rationale: an empty string (`''`) is a meaningful value for textual data — it represents "deliberately blank, recorded as such." For numeric and date data, there is no analogous "empty number" or "empty date"; absence of a value is always NULL.
+
+##### 2.6.3 ts_store Compact Data Rows (compatibility variant)
+
+For high-volume logs from ts_store, a compact single-line-per-record form is supported for the Data block content (after any Templates/Fields/ includes):
+
+```
+<recid>. #|# <f1>|<f2>|...|<fN>
+```
+
+- The formatter `#|#` declares the compact style (bookend `#`, separator `|`).
+- `|` is the field separator character.
+- The `<recid>` (the number before `.`) is the record id.
+- The line parser splits the tail on `|` into the hierarchy (values).
+
+Null vs empty:
+- Empty string field: `||` (adjacent separators).
+- Null field: `|\x1F|`  (U+001F INFORMATION SEPARATOR ONE, Unit Separator, as the field content).
+  This allows `||` and `||` (with embedded control) to look similar on the surface while distinguishing null from empty string for roundtrips and fidelity.
+
+This form is produced by ts_store for efficiency; the jText tools accept it when a Fields include or block has been seen (the field count is known for validation).
 
 #### 2.6.2 Data Block Example
 

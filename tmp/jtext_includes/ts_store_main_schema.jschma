@@ -1,0 +1,14 @@
+//File:    tests/jtext_includes/ts_store_main_schema.jschma
+//Date:    2026-06-05
+//Purpose: SQL Schema File for ts_store main event table (common)
+//Related: type=ts_store
+
+CREATE TABLE IF NOT EXISTS ts_store_events (
+    id BIGINT PRIMARY KEY,
+    thread_id BIGINT,
+    per_thread_event_id BIGINT,
+    flags_raw BIGINT,
+    category TEXT,
+    payload TEXT,
+    timestamp_us BIGINT
+);

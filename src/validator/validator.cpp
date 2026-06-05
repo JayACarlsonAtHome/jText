@@ -464,10 +464,80 @@ auto assemble_records(
         }
     };
 
+    bool ts_style = false;
+    if (!sec.data_lines.empty() && sec.data_lines[0].number > field_count) {
+      ts_style = true;
+    }
+    unsigned ts_field_pos = 0;
+    std::size_t current_ts_record_id = 0;
+
     for (const auto& pl : sec.data_lines) {
         if (pl.number == 0) {
             // Blank-line sentinel: end of current record.
             flush_current();
+            if (ts_style) ts_field_pos = 0;
+            continue;
+        }
+
+        // ts_store compact full-row format support: one data line per record,
+        // using formatter #|# (or similar) so the line parser already split the
+        // tail into pl.hierarchy (one entry per field value). The pl.number is
+        // the record id. Handle this regardless of the old ts_style heuristic
+        // (which was for per-field lines repeating the record id).
+        // If hierarchy has >1 entry, this pl came from a multi-field compact line
+        // (standard per-field data lines have hierarchy.size()==1).
+        if (pl.hierarchy.size() > 1) {
+            // full record in one line
+            flush_current();
+            current.values.assign(field_count, std::nullopt);
+            current.source_line_no = 0;
+            current.record_id = pl.number;
+            record_open = true;
+            for (size_t fi = 0; fi < pl.hierarchy.size() && fi < field_count; ++fi) {
+                const auto& hv = pl.hierarchy[fi];
+                // We picked '|' as the field separator character for compact
+                // ts_store-style data rows ("N. #|# f1|f2|...").
+                // Null is represented by the embedded ASCII Unit Separator (0x1F)
+                // so that a null field appears as |\x1F| while empty string is || .
+                // This allows the surface to look similar (|| vs || with invisible)
+                // but distinguishes null from empty.
+                // We also support \N and NULL for compatibility.
+                if (hv == "\x1f" || hv == "\\N" || hv == "NULL") {
+                    current.values[fi] = std::nullopt;
+                } else {
+                    current.values[fi] = hv;  // empty string stays as ""
+                }
+            }
+            flush_current();  // complete row
+            continue;
+        }
+
+        if (ts_style) {
+            if (!record_open || pl.number != current_ts_record_id) {
+                flush_current();
+                current.values.assign(field_count, std::nullopt);
+                current.source_line_no = 0;
+                current.record_id = pl.number;
+                record_open = true;
+                current_ts_record_id = pl.number;
+                ts_field_pos = 0;
+                last_pos = 0;
+                first_field_in_record = true;
+            }
+            ts_field_pos++;
+            if (ts_field_pos > field_count) {
+                report_issue(report, issue_severity::error,
+                             issue_kind::record_field_out_of_range,
+                             0,
+                             std::format("section '{}'", sec.name),
+                             std::format("data line for record id {} references field {} but the "
+                                         "section declares only {} field(s)",
+                                         pl.number, ts_field_pos, field_count));
+                continue;
+            }
+            current.values[ts_field_pos - 1] = encode_value(pl);
+            last_pos = ts_field_pos;
+            first_field_in_record = false;
             continue;
         }
 
@@ -477,6 +547,7 @@ auto assemble_records(
         if (!record_open) {
             current.values.assign(field_count, std::nullopt);
             current.source_line_no = 0;  // we don't have source line; future work
+            current.record_id = 0;
             record_open = true;
             first_field_in_record = true;
             last_pos = 0;
@@ -725,6 +796,7 @@ auto validate(const parsed_file& pf) -> validate_result
         validated_section vs;
         vs.name      = sec.name;
         vs.templates = sec.templates;
+        vs.includes  = sec.includes;
         vs.fields    = interpret_fields(sec, vr.report);
 
         const auto fc = vs.fields.size();
@@ -736,6 +808,29 @@ auto validate(const parsed_file& pf) -> validate_result
     }
 
     return vr;
+}
+
+// Simple in-memory substitution for numbered placeholders {1}, {2}, ...
+// Replaces {N} with the corresponding value (or "NULL" for missing).
+// This is the core of the "in memory procedure" for template-driven processing
+// (e.g. turning ts_store jText records + template into SQL statements on the fly
+// without writing a full .jtFull or .sql file). The caller is responsible for
+// any SQL-specific quoting/escaping if needed.
+std::string apply_numbered_template(std::string_view body,
+                                    const std::vector<std::optional<std::string>>& values)
+{
+    std::string out(body);
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        std::string placeholder = "{" + std::to_string(i + 1) + "}";
+        std::string replacement = values[i].has_value() ? *values[i] : "NULL";
+
+        std::string::size_type pos = 0;
+        while ((pos = out.find(placeholder, pos)) != std::string::npos) {
+            out.replace(pos, placeholder.length(), replacement);
+            pos += replacement.length();
+        }
+    }
+    return out;
 }
 
 }  // namespace jtext

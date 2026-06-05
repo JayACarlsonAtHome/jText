@@ -1,9 +1,8 @@
-//File Name:        workshop_from_db.jschma
-//Origin Date:      2026-05-31
-//Modified Date:    NA
-
-// Related Database --
-// Related Table    --
+//File:    /home/jay/git/jText/samples/workshop_from_db/workshop_from_db.jschma
+//Date:    2026-06-05
+//Purpose: SQL Schema File
+//Related: type=PostgreSQL table=workshop_tools
+//
 
 CREATE TABLE IF NOT EXISTS workshop_tools (
     psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist TEXT

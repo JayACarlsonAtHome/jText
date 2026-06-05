@@ -55,7 +55,14 @@ auto is_blank(std::string_view sv) -> bool
 auto is_standard_header_comment(std::string_view sv) -> bool
 {
     auto s = trim(strip_eol(sv));
-    return s.starts_with("//File Name:") ||
+    return s.starts_with("//File:") ||
+           s.starts_with("//File Name:") ||
+           s.starts_with("//Date:") ||
+           s.starts_with("//Purpose:") ||
+           s.starts_with("//Purpose -") ||
+           s.starts_with("//Related:") ||
+           s.starts_with("//Related Database:") ||
+           s.starts_with("//Related Table:") ||
            s.starts_with("//Origin Date:") ||
            s.starts_with("//Modified Date:") ||
            s.starts_with("// Related Database") ||
@@ -160,6 +167,19 @@ auto extract_template_name(std::string_view interior) -> std::string
     auto rest = t;
     rest.remove_prefix(prefix.size());
     return std::string{trim(rest)};
+}
+
+auto extract_include(std::string_view interior) -> std::pair<std::string, std::string>
+{
+    auto t = trim(interior);
+    constexpr std::string_view inc_prefix{"<#include#>"};
+    if (!t.starts_with(inc_prefix)) return {};
+    auto rest = trim(t.substr(inc_prefix.size()));
+    size_t colon = rest.find(':');
+    if (colon == std::string_view::npos) return {};
+    std::string type = std::string{trim(rest.substr(0, colon))};
+    std::string path = std::string{trim(rest.substr(colon + 1))};
+    return {type, path};
 }
 
 }  // anonymous namespace
@@ -294,6 +314,21 @@ auto build_one_section(
         const auto stripped = strip_eol(raw);
         const auto line_no = cursor + 1;  // 1-based
 
+        // ts_store / debug trailer
+        if (stripped.find("-- EOF") != std::string::npos || stripped.find("EOF --") != std::string::npos) {
+            ++cursor;
+            trim_trailing_blank();
+            return sec;
+        }
+
+        // Skip comment lines (# or //) inside the section (for robustness with
+        // ts_store samples, explanatory comments, etc.). They are already skipped
+        // at file header level.
+        if (stripped.starts_with('#') || stripped.starts_with("//")) {
+            ++cursor;
+            continue;
+        }
+
         // Blank lines: in the data block they're significant — they
         // separate records. We preserve them as sentinel parsed_line
         // entries (number == 0) so the validator can detect record
@@ -372,6 +407,11 @@ auto build_one_section(
                     cursor = body_or_err->second;  // past the closer line
                     continue;
                 }
+                if (auto [inc_type, inc_path] = extract_include(interior); !inc_type.empty()) {
+                    sec.includes.emplace_back(inc_type, inc_path);
+                    ++cursor;
+                    continue;
+                }
                 if (marker_is_fields(interior)) {
                     state = section_state::reading_fields;
                     fields_block_seen = true;
@@ -403,6 +443,11 @@ auto build_one_section(
                 }
                 if (marker_is_data(interior)) {
                     state = section_state::reading_data;
+                    ++cursor;
+                    continue;
+                }
+                if (auto [inc_type, inc_path] = extract_include(interior); !inc_type.empty()) {
+                    sec.includes.emplace_back(inc_type, inc_path);
                     ++cursor;
                     continue;
                 }
@@ -444,6 +489,14 @@ auto build_one_section(
                 // Loose lines in intro before fields/data — accept
                 // them as field lines? No: the SPEC requires Fields
                 // banner. We treat this as unexpected.
+                // However, for ts_store bare style (includes/templates at top, then bare
+                // compact data rows "N. #|# f1|f2|..." without Data banner), allow the
+                // compact data lines to be collected directly into data_lines.
+                if (stripped.find(" #|# ") != std::string::npos) {
+                    sec.data_lines.push_back(pl);
+                    ++cursor;
+                    continue;
+                }
                 return err(file_error_kind::unexpected_marker, line_no,
                            "data line before '=== Fields ===' or '=== Data ===' "
                            "in section");
@@ -496,10 +549,15 @@ auto build_from_lines(const std::vector<std::string>& lines)
     std::size_t cursor = 0;
 
     // 1. Find and consume the magic line.
-    // Skip leading blank lines and the new standard // header comment block.
+    // Skip leading blank lines and any header comment lines (// or # style, standard or legacy).
+    // This makes ts_store logs (which start with our // header then # from writer) parseable,
+    // while still supporting the === jText File magic.
     while (cursor < lines.size()) {
         const auto stripped = strip_eol(lines[cursor]);
-        if (is_blank(stripped) || is_standard_header_comment(stripped)) {
+        auto s = trim(stripped);
+        if (is_blank(stripped) ||
+            s.starts_with("//") ||
+            s.starts_with("#")) {
             ++cursor;
             continue;
         }
@@ -512,16 +570,30 @@ auto build_from_lines(const std::vector<std::string>& lines)
     }
 
     {
+        const auto& first = lines[cursor];
+        const auto first_stripped = strip_eol(first);
         std::string interior;
-        if (!is_structural_marker(lines[cursor], interior) ||
-            !marker_is_jtext_file(interior))
-        {
+        if (first_stripped.find("=== Section:") != std::string_view::npos) {
+            // ts_store style top-level section (with our includes/templates) without an explicit
+            // jText File magic line. Proceed with empty header; the header-read loop will
+            // immediately see the section banner and stop. This supports the ts_store logs.
+        } else if (is_structural_marker(first, interior) && marker_is_jtext_file(interior)) {
+            ++cursor;  // consumed the === magic
+        } else if (first_stripped.starts_with("# JText File - created ")) {
+            // legacy # magic from writer; do not advance, header parsing will handle the # block
+        } else if (first_stripped.find("=== <#include#>") != std::string_view::npos ||
+                   first_stripped.find("=== Template:") != std::string_view::npos) {
+            // ts_store bare style: top-level includes + templates (no explicit jText File or
+            // Section banner). The includes bring schema/fields, templates for SQL etc, followed
+            // by bare data rows in compact "N. #|# f1|f2|..." form. Accept here so header loop
+            // can see it; we will auto-start an implicit section for the content.
+        } else {
             return err(file_error_kind::missing_magic_line, cursor + 1,
                        std::format("first non-blank line must be "
-                                   "'=== jText File ===', got: {}",
-                                   strip_eol(lines[cursor])));
+                                   "'=== jText File ===' or start with '# JText File - created ' "
+                                   "or a top-level '=== Section: ', got: {}",
+                                   first_stripped));
         }
-        ++cursor;
     }
 
     // 2. Read header lines until first Section banner (or End File).
@@ -534,6 +606,12 @@ auto build_from_lines(const std::vector<std::string>& lines)
             continue;
         }
 
+        if (stripped.starts_with('#') || stripped.starts_with("//")) {
+            // skip legacy # header and any // comments in header area
+            ++cursor;
+            continue;
+        }
+
         std::string interior;
         if (is_structural_marker(stripped, interior)) {
             if (!extract_section_name(interior).empty()) break;
@@ -541,6 +619,14 @@ auto build_from_lines(const std::vector<std::string>& lines)
                 // File has header only, no sections.
                 ++cursor;
                 return out;
+            }
+            if (interior.find("#include") != std::string::npos ||
+                interior.find("Template:") != std::string::npos) {
+                // ts_store bare style at file header level: includes + templates come before any
+                // Section banner (or instead of one). Back up so the sections logic (or implicit
+                // section creation) will pick up this content as the start of the data.
+                --cursor;
+                break;
             }
             return err(file_error_kind::unexpected_marker, line_no,
                        std::format("unexpected marker '=== {} ===' in file header",
@@ -551,6 +637,35 @@ auto build_from_lines(const std::vector<std::string>& lines)
         if (!pl_or_err) return std::unexpected{pl_or_err.error()};
         out.header_lines.push_back(*pl_or_err);
         ++cursor;
+    }
+
+    // ts_store bare support (after possible --cursor in header for include/template):
+    // If we have top-level includes/templates or bare data (no Section banner ever emitted
+    // by ts_store split logs), auto-create one implicit section "ts_store" and let
+    // build_one_section consume the includes, templates, and following bare "N. #|# ..." rows.
+    if (out.sections.empty() && cursor < lines.size()) {
+        // skip blanks to see what is next
+        std::size_t probe = cursor;
+        while (probe < lines.size() && is_blank(strip_eol(lines[probe]))) ++probe;
+        if (probe < lines.size()) {
+            std::string inter;
+            auto s = strip_eol(lines[probe]);
+            if (is_structural_marker(s, inter)) {
+                if (inter.find("#include") != std::string::npos ||
+                    inter.find("Template:") != std::string::npos) {
+                    std::string impl_name = "ts_store";
+                    auto sec_or_err = build_one_section(lines, cursor, impl_name);
+                    if (!sec_or_err) return std::unexpected{sec_or_err.error()};
+                    out.sections.push_back(std::move(*sec_or_err));
+                }
+            } else if (s.find(" #|# ") != std::string::npos) {
+                // bare data rows with no preceding include/template even
+                std::string impl_name = "ts_store";
+                auto sec_or_err = build_one_section(lines, cursor, impl_name);
+                if (!sec_or_err) return std::unexpected{sec_or_err.error()};
+                out.sections.push_back(std::move(*sec_or_err));
+            }
+        }
     }
 
     // 3. Read sections.

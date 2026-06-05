@@ -18,6 +18,7 @@
 
 #include <string>
 #include <string_view>
+#include <optional>
 
 namespace {
 
@@ -706,6 +707,86 @@ inline auto register_validator_basic_tests(jtext::test::suite& s) -> void
         }
         test_eq(vr.file.header.at("filename"),
                 std::string{"tools_inventory.jText"});
+    });
+
+    s.add("apply_numbered_template: basic substitution and NULL handling", [] {
+        std::string body = "INSERT INTO t (a,b,c) VALUES ({1}, {2}, {3});";
+        std::vector<std::optional<std::string>> vals = {"1", "foo", std::nullopt};
+        std::string out = apply_numbered_template(body, vals);
+        test_eq(out, "INSERT INTO t (a,b,c) VALUES (1, foo, NULL);");
+    });
+
+    s.add("apply_numbered_template: ts_store style with OR IGNORE", [] {
+        std::string body = "INSERT OR IGNORE INTO persist (id, cat) VALUES ({1}, {2});";
+        std::vector<std::optional<std::string>> vals = {"42", "AUTH"};
+        std::string out = apply_numbered_template(body, vals);
+        test_eq(out, "INSERT OR IGNORE INTO persist (id, cat) VALUES (42, AUTH);");
+    });
+
+    s.add("include markers: captured in validated_file for ts_store style logs", [] {
+        const std::string_view text =
+            "=== jText File ===\n"
+            " 1. #?# ts.jtext\n"
+            " 2. #?# 2026-06-05\n"
+            " 3. #?# test\n"
+            "\n"
+            "=== Section: test ===\n"
+            "=== <#include#> Schema: common.jschma ===\n"
+            "=== <#include#> Fields: common.jtFlds ===\n"
+            "=== Fields ===\n"
+            " 1. #/# id/Number/Not Null\n"
+            "=== Data ===\n"
+            " 1. #?# 1\n"
+            "=== End Data ===\n"
+            "=== End Section ===\n"
+            "=== End File ===\n";
+        auto vr = validate_text(text);
+        test_false(vr.report.has_errors());
+        if (!vr.file.sections.empty()) {
+            const auto& incs = vr.file.sections[0].includes;
+            test_eq(incs.size(), std::size_t{2});
+            if (incs.size() >= 2) {
+                test_eq(incs[0].first, std::string{"Schema"});
+                test_eq(incs[0].second, std::string{"common.jschma"});
+                test_eq(incs[1].first, std::string{"Fields"});
+                test_eq(incs[1].second, std::string{"common.jtFlds"});
+            }
+        }
+    });
+
+    s.add("full ts_store compact roundtrip with null: parse -> validate -> records + sub", [] {
+        const std::string_view text =
+            "=== jText File ===\n"
+            " 1. #?# t.jtext\n"
+            "=== Section: s ===\n"
+            "=== <#include#> Schema: s.jschma ===\n"
+            "=== <#include#> Fields: s.jtFlds ===\n"
+            "=== Template: SQL Insert ===\n"
+            " 1. <<< !!!SI!!!\n"
+            "INSERT INTO t (id,v) VALUES ({1},{2});\n"
+            "!!!SI!!!\n"
+            "=== Fields ===\n"
+            " 1. #/# id/Number/Not Null\n"
+            " 2. #/# v/String\n"
+            "=== Data ===\n"
+            " 0. #|# 1|foo\n"
+            " 1. #|# 2|\x1F\n"  // null
+            "=== End Data ===\n"
+            "=== End Section ===\n"
+            "=== End File ===\n";
+        auto vr = validate_text(text);
+        test_false(vr.report.has_errors());
+        if (!vr.file.sections.empty()) {
+            const auto& sec = vr.file.sections[0];
+            test_eq(sec.records.size(), std::size_t{2});
+            test_false(sec.records[1].values[1].has_value());
+            // sub
+            std::string tmpl = "INSERT INTO t (id,v) VALUES ({1},{2});";
+            std::string out0 = apply_numbered_template(tmpl, sec.records[0].values);
+            test_eq(out0, "INSERT INTO t (id,v) VALUES (1,foo);");
+            std::string out1 = apply_numbered_template(tmpl, sec.records[1].values);
+            test_eq(out1, "INSERT INTO t (id,v) VALUES (2,NULL);");
+        }
     });
 }
 

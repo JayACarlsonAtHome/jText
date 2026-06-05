@@ -1,3 +1,7 @@
+//File:    /home/jay/git/jText/tests/framework/README.md
+//Date:    2026-06-05
+//Purpose: Test Framework README for jText
+//
 # jText Test Framework
 
 A small C++23 test framework written for the jText project. It lives

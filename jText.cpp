@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <unordered_set>
 #include <stdexcept>
+#include <chrono>
+#include <format>
 
 namespace fs = std::filesystem;
 using namespace std::literals;
@@ -111,21 +113,21 @@ auto JTextFile::parse_entry(std::string_view line) -> std::expected<JTextEntry, 
             return std::unexpected{"Missing final '#' for comment"};
         }
 
-        std::string_view data_part = trim(content.substr(0, last_hash));
-        std::string_view comment_part = trim(content.substr(last_hash + 1));
+        std::string data_part = trim(content.substr(0, last_hash));
+        std::string comment_part = trim(content.substr(last_hash + 1));
 
         if (data_part == "NULL" || data_part == "null" || data_part == "Null") {
             e.is_null = true;
-            e.fields = {"NULL"};
+            e.fields.emplace_back("NULL");
         } else if (!data_part.empty()) {
             if (!is_flat && level_sep != 0) {
                 std::stringstream ss(std::string{data_part});
                 std::string token;
                 while (std::getline(ss, token, level_sep)) {
-                    e.fields.push_back(trim(token));
+                    e.fields.emplace_back(trim(token));
                 }
             } else {
-                e.fields.push_back(std::string{data_part});
+                e.fields.emplace_back(std::string{data_part});
             }
         }
         e.comment = comment_part;
@@ -135,27 +137,30 @@ auto JTextFile::parse_entry(std::string_view line) -> std::expected<JTextEntry, 
         std::string_view content = rest.substr(2);
         size_t last_hash = content.rfind('#');
         if (last_hash != std::string_view::npos) {
-            e.fields.push_back(trim(content.substr(0, last_hash)));
+            e.fields.emplace_back(trim(content.substr(0, last_hash)));
             e.comment = trim(content.substr(last_hash + 1));
         } else {
-            e.fields.push_back(trim(content));
+            e.fields.emplace_back(trim(content));
         }
     }
     // Generic fallback
     else {
         size_t last_hash = rest.rfind('#');
         if (last_hash != std::string_view::npos) {
-            e.fields.push_back(trim(rest.substr(0, last_hash)));
+            e.fields.emplace_back(trim(rest.substr(0, last_hash)));
             e.comment = trim(rest.substr(last_hash + 1));
         } else {
-            e.fields.push_back(trim(rest));
+            e.fields.emplace_back(trim(rest));
         }
     }
 
     // Case normalization
     if (case_mode == CaseMode::Insensitive && !e.is_null && !e.fields.empty()) {
         for (auto& f : e.fields) {
-            std::transform(f.begin(), f.end(), f.begin(), ::toupper);
+            if (f) {
+                std::string& s = *f;
+                std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+            }
         }
         if (!e.comment.empty()) {
             std::transform(e.comment.begin(), e.comment.end(), e.comment.begin(), ::toupper);
@@ -184,7 +189,7 @@ auto JTextFile::parse_special_block(std::ifstream& in, JTextSection& sec)
 
     JTextEntry e;
     e.is_special_block = true;
-    e.fields = {trim(data_line)};
+    e.fields.emplace_back(trim(data_line));
 
     if (comment_line.starts_with("###")) {
         e.comment = trim(comment_line.substr(3));
@@ -214,8 +219,8 @@ auto JTextFile::parse_stream(std::ifstream& in, bool full_read, std::string_view
         line = trim(line);
         if (line.empty()) continue;
 
-        // Skip comment lines in header area
-        if (in_header && line.starts_with('#')) {
+        // Skip comment lines in header area (# or // for standardized file headers)
+        if (in_header && (line.starts_with('#') || line.starts_with("//"))) {
             continue;
         }
 
@@ -321,6 +326,10 @@ auto JTextFile::write(std::string_view filepath) const -> std::expected<void, st
     std::ofstream file(target);
     if (!file) return std::unexpected{"Cannot open file for writing: " + target};
 
+    // Emit leading // comments (for stream-backed writer we do it here to get File Name)
+    std::string purp = purpose.empty() ? "jText Data File" : purpose;
+    write_file_comment_header(file, target, purp);  // related info can be passed by callers using the 4-arg form when known
+
     JTextWriter writer(file);
 
     // Copy header metadata
@@ -377,7 +386,7 @@ auto JTextFile::validate() const -> std::expected<void, std::string> {
         if (sec.name != "Field List") continue;
 
         for (const auto& e : sec.entries) {
-            std::string name = trim(e.fields.empty() ? "" : e.fields[0]);
+            std::string name = trim(e.fields.empty() || !e.fields[0] ? "" : *e.fields[0]);
 
             if (name.empty()) {
                 checks.push_back("✗ 2. Empty field name in Field List");
@@ -461,6 +470,23 @@ auto JTextFile::validate() const -> std::expected<void, std::string> {
 // JTextWriter implementation
 // ===================================================================
 
+void write_file_comment_header(std::ostream& os,
+                                   std::string_view full_path,
+                                   std::string_view purpose,
+                                   std::string_view related) {
+    auto now = std::chrono::system_clock::now();
+    auto today = std::chrono::floor<std::chrono::days>(now);
+    std::string date_str = std::format("{:%Y-%m-%d}", today);
+
+    os << "//File:    " << full_path << "\n";
+    os << "//Date:    " << date_str << "\n";
+    os << "//Purpose: " << purpose << "\n";
+    if (!related.empty()) {
+        os << "//Related: " << related << "\n";
+    }
+    os << "//\n";
+}
+
 namespace {
 
 void write_header_block(std::ostream& out,
@@ -494,7 +520,7 @@ void write_entry_to_stream(std::ostream& out, const JTextEntry& e)
 {
     if (e.is_special_block) {
         out << "*** ^^^ ###\n";
-        if (!e.fields.empty()) out << e.fields[0] << '\n';
+        if (!e.fields.empty() && e.fields[0]) out << *e.fields[0] << '\n';
         if (!e.comment.empty()) out << "### " << e.comment << '\n';
         out << "^^^" << '\n';
         return;
@@ -510,7 +536,12 @@ void write_entry_to_stream(std::ostream& out, const JTextEntry& e)
 
     for (size_t i = 0; i < e.fields.size(); ++i) {
         if (i > 0) out << e.level_sep;
-        out << e.fields[i];
+        const auto& f = e.fields[i];
+        if (!f.has_value()) {
+            out << '\x1F';  // official null marker for compact (chosen ASCII US)
+        } else {
+            out << *f;
+        }
     }
 
     if (!e.comment.empty()) {
@@ -526,7 +557,7 @@ static std::string format_entry(const JTextEntry& e)
         std::string s;
         s.reserve(128);
         s += "*** ^^^ ###\n";
-        if (!e.fields.empty()) { s += e.fields[0]; s += '\n'; }
+        if (!e.fields.empty() && e.fields[0]) { s += *e.fields[0]; s += '\n'; }
         if (!e.comment.empty()) { s += "### "; s += e.comment; s += '\n'; }
         s += "^^^\n";
         return s;
@@ -548,7 +579,12 @@ static std::string format_entry(const JTextEntry& e)
 
     for (size_t i = 0; i < e.fields.size(); ++i) {
         if (i > 0) s += e.level_sep;
-        s += e.fields[i];
+        const auto& f = e.fields[i];
+        if (!f.has_value()) {
+            s += '\x1F';
+        } else {
+            s += *f;
+        }
     }
 
     if (!e.comment.empty()) {
@@ -616,6 +652,7 @@ JTextWriter::JTextWriter(std::string_view filepath)
     }
     out_ = file;
     owns_stream_ = true;
+    source_path_ = std::string{filepath};
 }
 
 JTextWriter::~JTextWriter()
@@ -642,7 +679,8 @@ JTextWriter::JTextWriter(JTextWriter&& other) noexcept
       case_mode_(other.case_mode_),
       sql_dialect_(std::move(other.sql_dialect_)),
       table_name_(std::move(other.table_name_)),
-      auto_id_(other.auto_id_)
+      auto_id_(other.auto_id_),
+      source_path_(std::move(other.source_path_))
 {
     other.out_ = nullptr;
     other.owns_stream_ = false;
@@ -663,6 +701,7 @@ JTextWriter& JTextWriter::operator=(JTextWriter&& other) noexcept
         sql_dialect_ = std::move(other.sql_dialect_);
         table_name_ = std::move(other.table_name_);
         auto_id_ = other.auto_id_;
+        source_path_ = std::move(other.source_path_);
 
         other.out_ = nullptr;
         other.owns_stream_ = false;
@@ -683,6 +722,14 @@ void JTextWriter::write_header()
     if (header_written_) return;
 
     if (!out_) return;
+
+    // Emit the standardized top-of-file // comment header if we know the source path
+    // (i.e. when constructed with filename, not raw stream). For stream case the
+    // caller (e.g. JTextSplitEventLog or JTextFile::write) may emit it first.
+    if (!source_path_.empty()) {
+        std::string purp = purpose_.empty() ? "jText Data File" : purpose_;
+        write_file_comment_header(*out_, source_path_, purp);
+    }
 
     write_header_block(*out_, date_, purpose_, case_mode_,
                        sql_dialect_, table_name_, auto_id_);
@@ -759,7 +806,7 @@ void JTextWriter::append_row(size_t number,
     } else {
         JTextEntry e;
         e.number = number;
-        e.fields = fields;
+        for (const auto& f : fields) e.fields.emplace_back(f);
         e.comment = std::string(comment);
         e.level_sep = level_sep;
         write_entry_to_stream(*out_, e);
