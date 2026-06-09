@@ -1,0 +1,16 @@
+//File:    tests/jtext_includes/ts_store_ints_fields.jtFlds
+//Date:    2026-06-05
+//Purpose: jText Field List File for ts_store integer metrics (common, 9 ints)
+//Related: type=ts_store
+
+=== Fields ===
+ 1. #/# event_id/Number/Not Null # links to main record
+ 2. #/# int0/Number
+ 3. #/# int1/Number
+ 4. #/# int2/Number
+ 5. #/# int3/Number
+ 6. #/# int4/Number
+ 7. #/# int5/Number
+ 8. #/# int6/Number
+ 9. #/# int7/Number
+10. #/# int8/Number

@@ -105,6 +105,7 @@ struct field {
 struct record {
     std::size_t                              source_line_no = 0;
     std::vector<std::optional<std::string>>  values;
+    std::size_t                              record_id = 0;  // for ts_store style logs (the event id from the data line number)
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -116,6 +117,8 @@ struct validated_section {
     std::vector<field>           fields;     // ordered by position (1..N)
     std::vector<record>          records;
     std::vector<parsed_template> templates;  // unchanged from parser
+    // includes copied from parser (for tools that want to process ts_store-style includes)
+    std::vector<std::pair<std::string, std::string>> includes;
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -235,6 +238,13 @@ struct validate_result {
 // ──────────────────────────────────────────────────────────────
 
 auto validate(const parsed_file& pf) -> validate_result;
+
+// In-memory numbered template substitution (e.g. "INSERT ... VALUES ({1}, {2})").
+// values[0] replaces {1}, etc. Useful for "in memory procedure" processing of
+// records against templates (e.g. ts_store roundtrips to SQL) without materializing
+// full .jtFull or .sql files on disk. For debugging the .jtFull is still supported.
+std::string apply_numbered_template(std::string_view body,
+                                    const std::vector<std::optional<std::string>>& values);
 
 }  // namespace jtext
 

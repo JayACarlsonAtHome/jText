@@ -1,3 +1,7 @@
+//File:    /home/jay/git/jText/SPEC.md
+//Date:    2026-06-05
+//Purpose: Specification for jText File Format
+//
 # jText — Format Specification
 
 **Version:** 0.6 (draft)
@@ -46,11 +50,64 @@ jText is **explicitly agnostic to its emission targets**. The format will never 
 
 ## 2. File Structure
 
-A jText file consists of:
+Every jText file — regardless of profile — begins with the **`//` filesystem wrapper** (Section 2.1). After that, the file follows either the **light profile** (§2.0.1, default for human-facing data) or the **full profile** (§2.0.2, for DB tooling and high-throughput logs). Both profiles share the same per-line grammar (Section 3).
 
-1. A **file header** — metadata about the whole file
-2. One or more **sections** — each section is a self-contained record set with its own schema and templates
-3. An **end-of-file marker**
+### 2.0 File Profiles
+
+| Profile | Recognition | Typical use |
+|---------|-------------|-------------|
+| **Light** | `//File:` … `//` then `# JText File - created` | Manifests, summaries, hand-edited catalogs (`ts_store` `run_manifest.jtext`) |
+| **Full** | `=== jText File ===` (often after the same `//` wrapper) | Event logs, SQL template emission, `jtext_process` round-trips |
+
+Parsers accept **both** profiles. Writers should emit one profile consistently per file.
+
+#### 2.0.1 Light Profile (canonical for human-facing files)
+
+The light profile uses a deliberate **`//` vs `#` contrast**:
+
+- `//` — filesystem wrapper (human + `head`/`grep` provenance)
+- `#` — jText internal metadata (parser-facing)
+- `-- SectionName --` — section banners
+- `# Fields: path.jtFlds` — shared field-list include (schema declared once, not in row comments)
+- Compact data rows (`N. #|# f1|f2|…`) or expanded per-field lines
+
+```
+//File:    run_manifest.jtext
+//Date:    2026-06-08
+//Purpose: ts_store test matrix run manifest
+//Related: type=ts_store table=ts_run_manifest
+//
+# JText File - created 2026-06-08T00:00:00Z
+# Purpose - ts_store test matrix run manifest
+# Case: Sensitive
+# Table Name: ts_run_manifest
+
+-- RunMeta --
+
+# Fields: tests/jtext_includes/run_manifest_runmeta_fields.jtFlds
+
+ 1. #|# OS_001|ssd|Smoke|2026-06-08T00:00:00Z|gcc|113|113|0
+
+-- Scenarios --
+
+# Fields: tests/jtext_includes/run_manifest_scenarios_fields.jtFlds
+
+  1. #|# TS_STORE_TEST_001_TS|gcc|binary|off|100|0.005|PASS|binary_logs/...
+ 10. #|# TS_STORE_TEST_002_TS|gcc|binary|off|100|0.005|PASS|binary_logs/...
+```
+
+Light-profile rules:
+
+- The `//` block is **required** on all `.jtext`, `.jtFlds`, `.jschma`, and `.sql` companions.
+- The `#` metadata block follows immediately after the closing `//` blank line.
+- Section banners use `-- name --` (not `=== Section: ===`).
+- Field schema is declared via `# Fields: <path>.jtFlds` or an inline field block; **not** repeated in row comments.
+- Line-number padding (§3.7) applies when a section has more than 9 numbered lines.
+- `-- EOF --` is optional.
+
+#### 2.0.2 Full Profile (DB / high-throughput tooling)
+
+The full profile adds `===` structural markers, optional emit templates, and explicit `=== Fields ===` / `=== Data ===` blocks. Use when `jtext_process`, SQL companions, or streaming validators need the heavier structure.
 
 ```
 === jText File ===
@@ -62,26 +119,36 @@ A jText file consists of:
 <template text with {N} placeholders>
 <sentinel>
 === Fields ===
-<field declaration lines>
+<field declaration lines or === <#include#> Fields: path.jtFlds ===>
 === Data ===
 <data lines>
 === End Data ===
 === End Section ===
 
-=== Section: <another section name> ===
-... (additional sections as needed)
-=== End Section ===
-
 === End File ===
 ```
 
-All structural markers (lines beginning with `===`) are **case-sensitive** and must match exactly. Whitespace around the markers is ignored.
+All `===` structural markers are **case-sensitive** and must match exactly. Whitespace around the markers is ignored. End markers are recommended but not required.
 
-End-of-section, end-of-data, and end-of-file markers are **recommended for clarity but not required**. When absent, the parser infers them from the start of the next structural element or from end-of-file.
+For full-profile files, `=== jText File ===` may serve as a magic line for content sniffing. Light-profile files are recognized by the `//File:` wrapper and `# JText File - created` line instead.
 
-The first non-blank line of a jText file is always `=== jText File ===`. This serves as the format's de facto magic number: tools that content-sniff files can recognize jText by this line regardless of file extension.
+### 2.1 Filesystem Wrapper (`//` headers)
 
-### 2.1 Character Encoding
+**Required for all profiles and all companion files.** All `.jtext`, `.jtFlds`, `.jtinsrt`, `.jschma`, and generated `.sql` sidecars should begin with these lines (before any `#` metadata or `===` content). The first three lines + blank `//` are **required**; `//Related:` is **optional but strongly encouraged** when origin is known:
+
+```
+//File:    <full-or-relative-path>
+//Date:    YYYY-MM-DD
+//Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
+//Related: type=PostgreSQL table=workshop_tools   (optional)
+//
+```
+
+The compact `//Related: type=... db=... table=...` form (user-specified convention) is a single line, easy to grep (`^//Related`), extensible with more keys, and replaces the older ad-hoc "Related Database --" / "Related Table --" style with something clean and consistent.
+
+This makes every file self-describing at a glance (e.g. `head *.jtext` or `head *.jschma`), works cleanly in git diffs, and provides a consistent example across projects (ts_store, jacQLite, jText itself). The leading `//` lines are comments skipped by parsers. Machine-readable metadata lives in the `#` block (light profile, §2.0.1) or the `=== jText File ===` block (full profile, §2.0.2).
+
+### 2.2 Character Encoding
 
 jText files are **UTF-8 encoded**.
 
@@ -89,9 +156,9 @@ jText files are **UTF-8 encoded**.
 - Readers must silently skip a leading UTF-8 BOM (`EF BB BF`) if present, for compatibility with files round-tripped through editors that add one
 - No other encoding (UTF-16, UTF-32, legacy 8-bit code pages) is supported
 
-### 2.2 File Header
+### 2.3 File Header (full profile and `#` block in light profile)
 
-The file header captures metadata that applies to the whole file. Every line in the file header follows the standard line grammar (Section 3).
+The file header captures metadata that applies to the whole file. In the **light profile**, these fields appear as `#` lines immediately after the `//` wrapper (see §2.0.1). In the **full profile**, they appear as numbered lines inside `=== jText File ===`. Every header line follows the standard line grammar (Section 3).
 
 The recognized file-header fields are:
 
@@ -112,6 +179,11 @@ Additional fields beyond this list are allowed and preserved by parsers; consume
 #### 2.2.1 File Header Example
 
 ```
+//File:    robot_arm_run_47.jText
+//Date:    2026-05-11
+//Purpose: jText Data File
+//Related: type=PostgreSQL table=arm_events
+//
 === jText File ===
  1. #?# robot_arm_run_47.jText            # filename
  2. #?# 2026-05-11                        # date
@@ -281,6 +353,26 @@ These states are **semantically distinct** for `String` fields and **semanticall
 For `Not Null` fields, both empty and missing are **semantic validation errors** regardless of type.
 
 The rationale: an empty string (`''`) is a meaningful value for textual data — it represents "deliberately blank, recorded as such." For numeric and date data, there is no analogous "empty number" or "empty date"; absence of a value is always NULL.
+
+##### 2.6.3 ts_store Compact Data Rows (compatibility variant)
+
+For high-volume logs from ts_store, a compact single-line-per-record form is supported for the Data block content (after any Templates/Fields/ includes):
+
+```
+<recid>. #|# <f1>|<f2>|...|<fN>
+```
+
+- The formatter `#|#` declares the compact style (bookend `#`, separator `|`).
+- `|` is the field separator character.
+- The `<recid>` (the number before `.`) is the record id.
+- The line parser splits the tail on `|` into the hierarchy (values).
+
+Null vs empty:
+- Empty string field: `||` (adjacent separators).
+- Null field: `|\x1F|`  (U+001F INFORMATION SEPARATOR ONE, Unit Separator, as the field content).
+  This allows `||` and `||` (with embedded control) to look similar on the surface while distinguishing null from empty string for roundtrips and fidelity.
+
+This form is produced by ts_store for efficiency; the jText tools accept it when a Fields include or block has been seen (the field count is known for validation).
 
 #### 2.6.2 Data Block Example
 

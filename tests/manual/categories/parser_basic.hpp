@@ -109,6 +109,11 @@ inline auto register_parser_basic_tests(jtext::test::suite& s) -> void
         }
     });
 
+    s.add("formatter: #|# is valid (ts_store compact style)", [] {
+        auto r = validate_formatter("#|#");
+        test_true(r.has_value());
+    });
+
     // ──────────────────────────────────────────────────────────
     //  parse_line — flat data, no comment
     // ──────────────────────────────────────────────────────────
@@ -143,6 +148,23 @@ inline auto register_parser_basic_tests(jtext::test::suite& s) -> void
             test_eq(r->hierarchy.size(), std::size_t{1});
             test_eq(r->hierarchy[0], std::string{""});
             test_eq(r->comment, std::string{""});
+        }
+    });
+
+    s.add("parse_line: ts_store compact row with | fields and \\x1F null", [] {
+        // Compact ts_store style: number. #|# f1|f2|...
+        // Using | as field separator, \x1F for explicit null.
+        auto r = parse_line("42. #|# 1|foo|\x1F|bar|\x1F");
+        test_true(r.has_value());
+        if (r) {
+            test_eq(r->kind, line_kind::data);
+            test_eq(r->number, 42u);
+            test_eq(r->hierarchy.size(), std::size_t{5});
+            test_eq(r->hierarchy[0], std::string{"1"});
+            test_eq(r->hierarchy[1], std::string{"foo"});
+            test_eq(r->hierarchy[2], std::string{"\x1F"});  // null marker
+            test_eq(r->hierarchy[3], std::string{"bar"});
+            test_eq(r->hierarchy[4], std::string{"\x1F"});
         }
     });
 

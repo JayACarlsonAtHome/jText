@@ -1,0 +1,12 @@
+//File:    tests/jtext_includes/ts_store_main_fields.jtFlds
+//Date:    2026-06-05
+//Purpose: jText Field List File for ts_store main event core columns (common)
+//Related: type=ts_store
+
+=== Fields ===
+ 1. #/# thread_id/Number/Not Null # originating thread (0-based)
+ 2. #/# per_thread_event_id/Number/Not Null # per-thread sequence
+ 3. #/# flags_raw/String # 0x... raw flags
+ 4. #/# category/String # event category/tag
+ 5. #/# payload/String # main payload text
+ 6. #/# timestamp_us/Number # microsecond timestamp

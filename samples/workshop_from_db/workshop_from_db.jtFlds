@@ -1,9 +1,8 @@
-//File Name:        workshop_from_db.jtFlds
-//Origin Date:      2026-05-31
-//Modified Date:    NA
-
-// Related Database --
-// Related Table    --
+//File:    /home/jay/git/jText/samples/workshop_from_db/workshop_from_db.jtFlds
+//Date:    2026-06-05
+//Purpose: jText Field List File
+//Related: type=PostgreSQL table=workshop_tools
+//
 
 === Fields ===
  1. #/# psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist/String/Nullable

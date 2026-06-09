@@ -298,10 +298,14 @@ auto parse_line(std::string_view raw)
     unsigned number = 0;
     auto [ptr, ec] = std::from_chars(digits_start, digits_start + digits_len,
                                      number);
-    if (ec != std::errc{} || number < 1 || number > 99) {
+    if (ec != std::errc{}) {
         return err(parse_error_kind::invalid_line_number, col,
-                   std::format("line number must be 1..99, got '{}'",
+                   std::format("invalid line number '{}'",
                                std::string_view{digits_start, digits_len}));
+    }
+    if (number == 0 || number > 99) {
+        return err(parse_error_kind::invalid_line_number, col,
+                   std::format("line number must be 1..99, got {}", number));
     }
     col += digits_len;
 
