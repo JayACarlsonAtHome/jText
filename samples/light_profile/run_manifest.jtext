@@ -1,0 +1,23 @@
+//File:    samples/light_profile/run_manifest.jtext
+//Date:    2026-06-08
+//Purpose: ts_store test matrix run manifest
+//Related: type=ts_store table=ts_run_manifest
+//
+# JText File - created 2026-06-08T12:00:00Z
+# Purpose - ts_store test matrix run manifest
+# Case: Sensitive
+# Table Name: ts_run_manifest
+
+-- RunMeta --
+
+# Fields: tests/jtext_includes/run_manifest_runmeta_fields.jtFlds
+
+ 1. #|# OS_001|ssd|Smoke|2026-06-08T12:00:00Z|gcc|3|3|0
+
+-- Scenarios --
+
+# Fields: tests/jtext_includes/run_manifest_scenarios_fields.jtFlds
+
+  1. #|# TS_STORE_TEST_001_TS|gcc|binary|off|100|0.005|PASS|binary_logs/TS_STORE_TEST_001_TS/gcc_binary_off.log
+  2. #|# TS_STORE_TEST_001_TS|gcc|binary|on|100|0.007|PASS|binary_logs/TS_STORE_TEST_001_TS/gcc_binary_on.log
+  3. #|# TS_STORE_TEST_001_TS|gcc|none|off|100|0.004|PASS|inmem_logs/TS_STORE_TEST_001_TS/gcc_none_off.log

@@ -13,7 +13,42 @@
 
 jText is a text format for storing structured records — the kind of data you'd otherwise put in a CSV file, a SQL table, or a small spreadsheet. It's plain text, line-oriented, hand-editable in any text editor, and designed to handle real-world content without escaping.
 
-A small example. Here's an inventory of personal tools, in jText:
+jText has two **file profiles** (see `SPEC.md` §2.0). Both start with the same `//` filesystem wrapper; they differ in how sections and schema are expressed.
+
+### Light profile (human-facing — default for summaries and manifests)
+
+The `//` block is for humans (`head`, git, grep). The `#` block is for jText tooling. Sections use `-- name --`; shared field lists use `# Fields: path.jtFlds`.
+
+```
+//File:    run_manifest.jtext
+//Date:    2026-06-08
+//Purpose: ts_store test matrix run manifest
+//Related: type=ts_store table=ts_run_manifest
+//
+# JText File - created 2026-06-08T00:00:00Z
+# Purpose - ts_store test matrix run manifest
+# Case: Sensitive
+# Table Name: ts_run_manifest
+
+-- RunMeta --
+
+# Fields: tests/jtext_includes/run_manifest_runmeta_fields.jtFlds
+
+ 1. #|# OS_001|ssd|Smoke|2026-06-08T00:00:00Z|gcc|113|113|0
+
+-- Scenarios --
+
+# Fields: tests/jtext_includes/run_manifest_scenarios_fields.jtFlds
+
+  1. #|# TS_STORE_TEST_001|gcc|binary|off|100|0.005|PASS|logs/...
+ 10. #|# TS_STORE_TEST_002|gcc|binary|off|100|0.005|PASS|logs/...
+```
+
+See `samples/light_profile/run_manifest.jtext` for a complete reference file.
+
+### Full profile (DB tooling and high-throughput logs)
+
+Uses `===` section markers, optional SQL templates, and `=== Fields ===` / `=== Data ===` blocks. Example — a hand-edited tool catalog:
 
 ```
 //File:    tools.jText
@@ -36,17 +71,11 @@ A small example. Here's an inventory of personal tools, in jText:
  2. #?# Stanley Hammer
  3. #/# Hand Tools/Hammers/Claw
  4. #?# 16oz fiberglass handle
-
- 1. #?# 2
- 2. #?# DeWalt Drill DCD777
- 3. #/# Power Tools/Drills/Cordless
- 4. #?# 20V MAX, brushless
 === End Data ===
 === End Section ===
-=== End File ===
 ```
 
-You can read this top to bottom and understand exactly what it contains. You can edit it in Notepad. You can pipe it through `grep`. You can commit it to git and get meaningful diffs. And — unlike CSV — a stray comma, slash, or quote in your data won't silently corrupt it.
+You can read either profile top to bottom and understand exactly what it contains. You can edit it in Notepad. You can pipe it through `grep`. You can commit it to git and get meaningful diffs. And — unlike CSV — a stray comma, slash, or quote in your data won't silently corrupt it.
 
 ---
 

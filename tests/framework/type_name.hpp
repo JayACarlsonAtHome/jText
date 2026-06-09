@@ -55,10 +55,16 @@ constexpr std::string_view extract_between(
 template <typename T>
 constexpr std::string_view type_name()
 {
-    // Use source_location to get the function signature in a portable way.
-    // This works on GCC, Clang, and MSVC without any #ifdefs.
+    // Template parameter names live in the compiler signature, not in
+    // std::source_location::function_name() (which omits template args).
+#if defined(__GNUC__) || defined(__clang__)
+    constexpr std::string_view sig = __PRETTY_FUNCTION__;
+#elif defined(_MSC_VER)
+    constexpr std::string_view sig = __FUNCSIG__;
+#else
     constexpr std::source_location loc = std::source_location::current();
     constexpr std::string_view sig = loc.function_name();
+#endif
 
     // Different compilers embed the template argument in slightly different ways.
     // We try the most common patterns.

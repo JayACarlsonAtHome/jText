@@ -769,8 +769,8 @@ inline auto register_validator_basic_tests(jtext::test::suite& s) -> void
             " 1. #/# id/Number/Not Null\n"
             " 2. #/# v/String\n"
             "=== Data ===\n"
-            " 0. #|# 1|foo\n"
-            " 1. #|# 2|\x1F\n"  // null
+            " 1. #|# 1|foo\n"
+            " 2. #|# 2|\x1F\n"  // null
             "=== End Data ===\n"
             "=== End Section ===\n"
             "=== End File ===\n";
