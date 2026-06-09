@@ -1,0 +1,61 @@
+//File:    /home/jay/git/ts_store/test_results/jText_logs/TS_STORE_TEST_005_TS/persist.jtext
+//Date:    2026-06-05
+//Purpose: jText Data File
+//Related: type=ts_store table=/home/jay/git/ts_store/test_results/jText_logs/TS_STORE_TEST_005_TS/persist
+//
+# JText File - created 
+# Purpose - ts_store split event log (main)
+# Case: INSENSITIVE
+
+=== <#include#> Schema: jtext_includes/ts_store_main_schema.jschma ===
+=== <#include#> Fields: jtext_includes/ts_store_main_fields.jtFlds ===
+=== Template: Create Table ===
+ 1. <<< !!!CT!!!
+CREATE TABLE IF NOT EXISTS /home/jay/git/ts_store/test_results/jText_logs/TS_STORE_TEST_005_TS/persist (
+    id BIGINT PRIMARY KEY,
+    thread_id BIGINT,
+    per_thread_event_id BIGINT,
+    flags_raw BIGINT,
+    category TEXT,
+    payload TEXT,
+    timestamp_us BIGINT
+);
+!!!CT!!!
+
+=== Template: SQL Insert ===
+ 1. <<< !!!INS!!!
+INSERT INTO /home/jay/git/ts_store/test_results/jText_logs/TS_STORE_TEST_005_TS/persist (id, thread_id, per_thread_event_id, flags_raw, category, payload, timestamp_us)
+VALUES ({1}, {2}, {3}, {4}, {5}, {6}, {7});
+!!!INS!!!
+
+0. #|# 2|0|0x0000000000150013|UI|Not Set, default payload 😎|85705
+1. #|# 2|1|0x0000000100150013|UI|Trace processing request 😎|85708
+2. #|# 2|2|0x0000000200150013|UI|Debug processing request 😎|85708
+3. #|# 2|3|0x0000000300150013|UI|Info processing request 😊|85708
+4. #|# 2|4|0x0000000400150013|UI|Warning in processing notification 😕|85709
+5. #|# 2|5|0x0000000500150013|UI|Error in processing notification 😣|85709
+6. #|# 2|6|0x0000000600150013|UI|Critical processing request 😣|85711
+7. #|# 2|7|0x0000000700150013|UI|Fatal error in processing notification 💀|85712
+8. #|# 2|8|0x0000000000150013|UI|Not Set, default payload 😎|85712
+9. #|# 2|9|0x0000000100150013|UI|Trace processing request 😎|85712
+500000. #|# 132|3325|0x0000000500150013|UI|Error in processing notification 😣|1100757
+505275. #|# 39|3651|0x0000000300150013|GFX|Info processing request 😊|1103068
+505592. #|# 162|1597|0x0000000500150013|UI|Error in processing notification 😣|1103166
+505579. #|# 187|2219|0x0000000300150013|UI|Info processing request 😊|1103163
+505580. #|# 81|2022|0x0000000600150013|DB|Critical processing request 😣|1103163
+505593. #|# 162|1598|0x0000000600150013|UI|Critical processing request 😣|1103167
+505586. #|# 62|2346|0x0000000200150013|UI|Debug processing request 😎|1103164
+505503. #|# 183|1908|0x0000000400150013|SYS|Warning in processing notification 😕|1103139
+505595. #|# 162|1599|0x0000000700150013|UI|Fatal error in processing notification 💀|1103167
+505594. #|# 141|2096|0x0000000000150013|DB|Not Set, default payload 😎|1103167
+999990. #|# 232|3990|0x0000000600150013|UI|Critical processing request 😣|19870595
+999991. #|# 232|3991|0x0000000700150013|UI|Fatal error in processing notification 💀|19870595
+999992. #|# 232|3992|0x0000000000150013|UI|Not Set, default payload 😎|19870596
+999993. #|# 232|3993|0x0000000100150013|UI|Trace processing request 😎|19870596
+999994. #|# 232|3994|0x0000000200150013|UI|Debug processing request 😎|19870597
+999995. #|# 232|3995|0x0000000300150013|UI|Info processing request 😊|19870597
+999996. #|# 232|3996|0x0000000400150013|UI|Warning in processing notification 😕|19870598
+999997. #|# 232|3997|0x0000000500150013|UI|Error in processing notification 😣|19870598
+999998. #|# 232|3998|0x0000000600150013|UI|Critical processing request 😣|19870598
+999999. #|# 232|3999|0x0000000700150013|UI|Fatal error in processing notification 💀|19870599
+-- EOF --

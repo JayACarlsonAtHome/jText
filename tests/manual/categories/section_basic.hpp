@@ -131,13 +131,11 @@ inline auto register_section_basic_tests(jtext::test::suite& s) -> void
 
     s.add("file: standard // header comments before magic are tolerated", [] {
         const std::string_view text =
-            "//File Name:        test.jtFull\n"
-            "//Origin Date:      2026-05-31\n"
-            "//Modified Date:    NA\n"
-            "\n"
-            "// Related Database --\n"
-            "// Related Table    --\n"
-            "\n"
+            "//File:    test.jtFull\n"
+            "//Date:    2026-06-05\n"
+            "//Purpose: jText Data File\n"
+            "//Related: type=PostgreSQL table=test\n"
+            "//\n"
             "=== jText File ===\n"
             " 1. #?# test.jtFull\n"
             "=== End File ===\n";

@@ -1,0 +1,14 @@
+//File:    tests/jtext_includes/ts_store_floats_schema.jschma
+//Date:    2026-06-05
+//Purpose: SQL Schema File for ts_store double metrics table (common, 6 dbls)
+//Related: type=ts_store
+
+CREATE TABLE IF NOT EXISTS ts_store_floats (
+    id BIGINT PRIMARY KEY,
+    dbl0 DOUBLE PRECISION,
+    dbl1 DOUBLE PRECISION,
+    dbl2 DOUBLE PRECISION,
+    dbl3 DOUBLE PRECISION,
+    dbl4 DOUBLE PRECISION,
+    dbl5 DOUBLE PRECISION
+);

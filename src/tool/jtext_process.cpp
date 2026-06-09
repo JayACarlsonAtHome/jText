@@ -35,6 +35,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <chrono>
+#include <format>
 
 namespace fs = std::filesystem;
 
@@ -111,8 +113,20 @@ int main(int argc, char** argv)
     std::string base   = argv[2];
     fs::path out_path  = argv[3];
 
-    // Current layout: <data_path>/<base_name>/<base_name>.jtFull
+    // Support multiple layouts for flexibility (including ts_store split logs and .jtFull for debugging):
+    // - <data_path>/<base_name>/<base_name>.jtFull (classic)
+    // - <data_path>/<base_name>.jtext (flat ts_store style main data file with embedded templates)
+    // - <data_path>/<base_name>.jtFull
     fs::path input_file = data_dir / base / (base + ".jtFull");
+    if (!fs::exists(input_file)) {
+        input_file = data_dir / (base + ".jtext");
+    }
+    if (!fs::exists(input_file)) {
+        input_file = data_dir / base / (base + ".jtext");
+    }
+    if (!fs::exists(input_file)) {
+        input_file = data_dir / (base + ".jtFull");
+    }
 
     std::string content = load_file(input_file);
     if (content.empty()) {
@@ -158,8 +172,24 @@ int main(int argc, char** argv)
 
     // Emit one INSERT per record using the template
     std::string output_sql;
+    auto now = std::chrono::system_clock::now();
+    auto today = std::chrono::floor<std::chrono::days>(now);
+    std::string date_str = std::format("{:%Y-%m-%d}", today);
+    output_sql += "//File:    " + std::string(base) + ".sql\n";
+    output_sql += "//Date:    " + date_str + "\n";
+    output_sql += "//Purpose: SQL Data File\n";
+    // If the source jText carried table_name, emit the compact Related form.
+    std::string rel_table = base;
+    auto it = result.file.header.find("table_name");
+    if (it != result.file.header.end() && !it->second.empty()) {
+        rel_table = it->second;
+    }
+    if (!rel_table.empty()) {
+        output_sql += "//Related: type=jText table=" + rel_table + "\n";
+    }
+    output_sql += "//\n";
     output_sql += "-- Generated from " + std::string(base) + ".jtFull\n";
-    output_sql += "-- by jtext_process (early prototype)\n";
+    output_sql += "-- by jtext_process\n";
     output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n\n";
 
     bool first = true;
@@ -167,7 +197,11 @@ int main(int argc, char** argv)
         for (const auto& rec : sec.records) {
             if (!first) output_sql += "\n";
             first = false;
-            output_sql += substitute_record(insert_template_body, rec);
+            jtext::record temp_rec = rec;
+            if (rec.record_id > 0 && (rec.values.empty() || !rec.values[0].has_value() || std::stoll(*rec.values[0]) != static_cast<long long>(rec.record_id))) {
+                temp_rec.values.insert(temp_rec.values.begin(), std::to_string(rec.record_id));
+            }
+            output_sql += substitute_record(insert_template_body, temp_rec);
         }
     }
 

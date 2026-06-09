@@ -1,6 +1,10 @@
--- Generated from workshop_tools.jtFull
--- by jtext_process (early prototype)
--- Note: Identity/auto columns are controlled by the templates in the jText file.
+//File:    /home/jay/git/jText/tmp/workshop_tools.sql
+//Date:    2026-06-05
+//Purpose: SQL Data File
+//
+//-- Generated from workshop_tools.jtFull
+//-- by jtext_process
+//-- Note: Identity/auto columns are controlled by the templates in the jText file.
 
 -- Use this version when you want to force specific id values
 -- (e.g. data migration with known keys).

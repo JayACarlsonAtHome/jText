@@ -21,29 +21,14 @@
 #pragma once
 
 #include <string_view>
+#include <source_location>
 
 namespace jtext::test {
 
 namespace detail {
 
-// ──────────────────────────────────────────────────────────────
-//  Compiler-specific PRETTY_FUNCTION / FUNCSIG selection
-// ──────────────────────────────────────────────────────────────
-
-#if defined(__clang__) || defined(__GNUC__)
-    #define JTEXT_PRETTY_FUNC __PRETTY_FUNCTION__
-    constexpr std::string_view type_marker_prefix = "T = ";
-    constexpr std::string_view type_marker_suffix = ";";   // GCC; Clang uses ']'
-#elif defined(_MSC_VER)
-    #define JTEXT_PRETTY_FUNC __FUNCSIG__
-    constexpr std::string_view type_marker_prefix = "type_name<";
-    constexpr std::string_view type_marker_suffix = ">(";
-#else
-    #error "Unsupported compiler for type_name<T>()"
-#endif
-
-// Find the substring between `prefix` and the first occurrence
-// of any character in `terminators` after the prefix.
+// Extract the substring between `prefix` and the first occurrence
+// of any character in `terminators`.
 constexpr std::string_view extract_between(
     std::string_view src,
     std::string_view prefix,
@@ -63,26 +48,34 @@ constexpr std::string_view extract_between(
 
 // ──────────────────────────────────────────────────────────────
 //  type_name<T>()
-//  Returns a clean name for type T.
+//  Returns a clean, human-readable name for type T using C++20
+//  std::source_location (no preprocessor macros).
 // ──────────────────────────────────────────────────────────────
 
 template <typename T>
 constexpr std::string_view type_name()
 {
-    constexpr std::string_view pretty = JTEXT_PRETTY_FUNC;
-
-#if defined(__clang__)
-    // Clang: "...[T = int]"  terminator is ']'
-    return detail::extract_between(pretty, "T = ", "]");
-#elif defined(__GNUC__)
-    // GCC:   "...[with T = int; ...]"  terminator is ';' or ']'
-    return detail::extract_between(pretty, "T = ", ";]");
+    // Template parameter names live in the compiler signature, not in
+    // std::source_location::function_name() (which omits template args).
+#if defined(__GNUC__) || defined(__clang__)
+    constexpr std::string_view sig = __PRETTY_FUNCTION__;
 #elif defined(_MSC_VER)
-    // MSVC: function signature includes "type_name<TheType>("
-    return detail::extract_between(pretty, "type_name<", ">(");
+    constexpr std::string_view sig = __FUNCSIG__;
+#else
+    constexpr std::source_location loc = std::source_location::current();
+    constexpr std::string_view sig = loc.function_name();
 #endif
-}
 
-#undef JTEXT_PRETTY_FUNC
+    // Different compilers embed the template argument in slightly different ways.
+    // We try the most common patterns.
+    if (auto name = detail::extract_between(sig, "T = ", ";]"); !name.empty())
+        return name;
+
+    if (auto name = detail::extract_between(sig, "type_name<", ">("); !name.empty())
+        return name;
+
+    // Fallback: return the whole signature (better than nothing)
+    return sig;
+}
 
 }  // namespace jtext::test

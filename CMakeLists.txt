@@ -58,13 +58,16 @@ endif()
 # ────────────────────────────────────────────────────────────────
 
 add_subdirectory(src)
-add_subdirectory(tests)
+if(NOT TS_STORE_BUILDING_JTEXT_TOOLS)
+    add_subdirectory(tests)
+endif()
 
 # ────────────────────────────────────────────────────────────────
 #  Early prototype tool (jtext_process)
 #  Takes: <data_path> <base_name> <output_file>
 # ────────────────────────────────────────────────────────────────
 
+if(NOT TS_STORE_BUILDING_JTEXT_TOOLS)
 add_executable(jtext_process
     src/tool/jtext_process.cpp
 )
@@ -83,6 +86,7 @@ add_executable(jtext_retrieve
 target_include_directories(jtext_retrieve PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 target_compile_features(jtext_retrieve PRIVATE cxx_std_23)
+endif()
 
 # ────────────────────────────────────────────────────────────────
 #  Summary
@@ -91,3 +95,8 @@ target_compile_features(jtext_retrieve PRIVATE cxx_std_23)
 message(STATUS "Project:      ${PROJECT_NAME} ${PROJECT_VERSION}")
 message(STATUS "C++ standard: C++${CMAKE_CXX_STANDARD}")
 message(STATUS "Build type:   ${CMAKE_BUILD_TYPE}")
+
+if(NOT TS_STORE_BUILDING_JTEXT_TOOLS)
+add_executable(jText_test tests/test_smoke.cpp)
+endif()
+

@@ -84,6 +84,9 @@ struct parsed_section {
     std::vector<parsed_line>       field_lines;
     std::vector<parsed_line>       data_lines;
     std::vector<multiline_body>    data_multiline_bodies;
+    // Support for <#include#> markers (e.g. for ts_store schema/fields sharing)
+    // These are recognized in intro state as special markers, not regular entries.
+    std::vector<std::pair<std::string, std::string>> includes; // {type, path}
 };
 
 // ──────────────────────────────────────────────────────────────

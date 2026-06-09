@@ -1,0 +1,13 @@
+//File:    tests/jtext_includes/ts_store_floats_fields.jtFlds
+//Date:    2026-06-05
+//Purpose: jText Field List File for ts_store double metrics (common, 6 dbls)
+//Related: type=ts_store
+
+=== Fields ===
+ 1. #/# event_id/Number/Not Null # links to main record
+ 2. #/# dbl0/Number
+ 3. #/# dbl1/Number
+ 4. #/# dbl2/Number
+ 5. #/# dbl3/Number
+ 6. #/# dbl4/Number
+ 7. #/# dbl5/Number
