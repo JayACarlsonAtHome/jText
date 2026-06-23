@@ -1,6 +1,6 @@
-// File: src/tool/jtext_retrieve.cpp
+// File: tools/jtext_from_sql.cpp
 //
-// jtext_retrieve - The reverse tool (PostgreSQL assumed).
+// jtext_from_sql - The reverse tool (PostgreSQL assumed).
 // Takes data from an existing PostgreSQL table/query and generates
 // the four jText component files:
 //
@@ -10,7 +10,7 @@
 //   <base_name>.jtext    - Starter data file (or assembly file)
 //
 // Invocation (first cut):
-//   jtext_retrieve <data_path> <base_name> <descriptor>
+//   jtext_from_sql <data_path> <base_name> <descriptor>
 //
 // Connection: uses standard PostgreSQL environment variables
 // (PGDATABASE, PGHOST, PGUSER, PGPASSWORD, PGPORT, etc.).
@@ -101,8 +101,8 @@ static std::string make_header(const std::string& filename,
 
 int main(int argc, char** argv) {
     if (argc != 4) {
-        std::cerr << "Usage: jtext_retrieve <data_path> <base_name> <descriptor_file>\n";
-        std::cerr << "Example: jtext_retrieve ./samples workshop_tools_from_db descriptor.sql\n";
+        std::cerr << "Usage: jtext_from_sql <data_path> <base_name> <descriptor_file>\n";
+        std::cerr << "Example: jtext_from_sql ./samples workshop_tools_from_db descriptor.sql\n";
         return 1;
     }
 

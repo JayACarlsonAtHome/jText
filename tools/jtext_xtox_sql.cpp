@@ -1,8 +1,8 @@
-// File: src/tool/jtext_process.cpp
+// File: tools/jtext_xtox_sql.cpp
 //
 // Minimal jText processor (first cut).
 // Invocation:
-//   jtext_process <data_path> <base_name> <output_file>
+//   jtext_xtox_sql <data_path> <base_name> <output_file>
 //
 // Design philosophy (important):
 //   - The tool is intentionally "stupid".
@@ -104,8 +104,8 @@ static auto substitute_record(const std::string& tmpl,
 int main(int argc, char** argv)
 {
     if (argc != 4) {
-        std::cerr << "Usage: jtext_process <data_path> <base_name> <output_file>\n";
-        std::cerr << "Example: jtext_process ./samples workshop_tools ./out/workshop_tools.sql\n";
+        std::cerr << "Usage: jtext_xtox_sql <data_path> <base_name> <output_file>\n";
+        std::cerr << "Example: jtext_xtox_sql ./samples workshop_tools ./out/workshop_tools.sql\n";
         return 1;
     }
 
@@ -189,7 +189,7 @@ int main(int argc, char** argv)
     }
     output_sql += "//\n";
     output_sql += "-- Generated from " + std::string(base) + ".jtFull\n";
-    output_sql += "-- by jtext_process\n";
+    output_sql += "-- by jtext_xtox_sql\n";
     output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n\n";
 
     bool first = true;

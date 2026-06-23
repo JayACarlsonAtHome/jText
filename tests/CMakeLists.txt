@@ -1,23 +1,3 @@
-# ────────────────────────────────────────────────────────────────
-#  Tests
-# ────────────────────────────────────────────────────────────────
-#
-#  The framework lives in framework/ and builds as a header-only
-#  interface library. Test executables (in manual/, conformance/)
-#  link against it.
-#
-#  Session 1 establishes:
-#    - tests/framework/        the framework itself
-#    - tests/manual/           with one meta_test executable
-#
-#  Session 2 adds:
-#    - tests/framework/        runner.cpp, reporter.cpp
-#
-#  Session 3+ adds:
-#    - tests/manual/           parser, validator, emitter tests
-#    - tests/conformance/      file-driven conformance tests
-#
-# ────────────────────────────────────────────────────────────────
-
-add_subdirectory(framework)
-add_subdirectory(manual)
+add_executable(jac313_jtext_v002_test v002_test.cpp)
+target_link_libraries(jac313_jtext_v002_test PRIVATE jac313::jText)
+add_test(NAME jac313_jtext_v002_test COMMAND jac313_jtext_v002_test)

@@ -1,0 +1,2 @@
+add_executable(jac313_jtext_v002_example v002_example.cpp)
+target_link_libraries(jac313_jtext_v002_example PRIVATE jac313::jText)
