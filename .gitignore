@@ -17,6 +17,8 @@ install_manifest.txt
 Makefile
 *.cmake
 !CMakeLists.txt
+# Hand-written CMake -P test scripts are source, not generated — keep them.
+!tools/tests/*.cmake
 
 # Compiled objects and binaries
 *.o
