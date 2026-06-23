@@ -234,13 +234,41 @@ struct validate_result {
 };
 
 // ──────────────────────────────────────────────────────────────
+//  validation_level
+//
+//  Layered validation: callers choose how much checking they want,
+//  trading thoroughness for speed. Higher levels are supersets of
+//  lower ones.
+//
+//   - minimal:  structural integrity + required (Not Null) presence.
+//               No per-value parsing — the fast path for trusted data.
+//   - standard: minimal + per-value type/format checks (Number,
+//               strict YYYY-MM-DD Date) + String length caps.
+//   - strict:   standard + template {N} placeholder range checks.
+//               Maximum scrutiny; use for critical/financial data.
+//
+//  Advisory warnings (empty section, duplicate name, hierarchical
+//  value in a record) are reported at every level and never gate
+//  has_errors().
+// ──────────────────────────────────────────────────────────────
+
+enum class validation_level : std::uint8_t {
+    minimal,
+    standard,
+    strict,
+};
+
+// ──────────────────────────────────────────────────────────────
 //  validate
 //
 //  The entry point. Walks the parsed_file, interprets fields,
 //  assembles records, validates everything, collects all issues.
+//  `level` defaults to strict, so existing callers are unchanged and
+//  get the most thorough checking (fail-closed).
 // ──────────────────────────────────────────────────────────────
 
-auto validate(const parsed_file& pf) -> validate_result;
+auto validate(const parsed_file& pf,
+              validation_level   level = validation_level::strict) -> validate_result;
 
 // In-memory numbered template substitution (e.g. "INSERT ... VALUES ({1}, {2})").
 // values[0] replaces {1}, etc. Useful for "in memory procedure" processing of

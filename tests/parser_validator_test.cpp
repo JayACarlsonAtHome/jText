@@ -48,7 +48,8 @@ void expect_ok(std::string_view in, const char* what) {
 // Build a minimal valid jText file carrying `date` in a Date field, parse +
 // validate it, and report whether validation produced any error. Everything
 // else in the document is valid, so an error means the date was rejected.
-bool date_validation_errors(const std::string& date) {
+bool date_validation_errors(const std::string& date,
+                            jtext::validation_level level = jtext::validation_level::strict) {
     const std::string doc =
         "=== jText File ===\n"
         " 1. #?# date_test\n"
@@ -71,7 +72,7 @@ bool date_validation_errors(const std::string& date) {
         "=== End File ===\n";
     auto pf = jtext::parse_file_structure(doc);
     if (!pf.has_value()) return true;  // structural rejection counts as an error
-    return jtext::validate(*pf).report.has_errors();
+    return jtext::validate(*pf, level).report.has_errors();
 }
 
 void expect_date_ok(const std::string& date) {
@@ -90,7 +91,8 @@ void expect_date_rejected(const std::string& date) {
 // Build a 2-field section whose template body is `body`, then parse + validate
 // and report whether validation produced any error. Used to exercise the
 // template {N} placeholder range check.
-bool template_validation_errors(const std::string& body) {
+bool template_validation_errors(const std::string& body,
+                                jtext::validation_level level = jtext::validation_level::strict) {
     const std::string doc =
         "=== jText File ===\n"
         " 1. #?# tmpl_test\n"
@@ -115,7 +117,31 @@ bool template_validation_errors(const std::string& body) {
         "=== End File ===\n";
     auto pf = jtext::parse_file_structure(doc);
     if (!pf.has_value()) return true;
-    return jtext::validate(*pf).report.has_errors();
+    return jtext::validate(*pf, level).report.has_errors();
+}
+
+// A document whose record omits a Not Null field (field 2). The required-field
+// check runs at EVERY level, so this must error regardless of level.
+bool required_missing_errors(jtext::validation_level level) {
+    const std::string doc =
+        "=== jText File ===\n"
+        " 1. #?# req_test\n"
+        "\n"
+        "=== Section: S ===\n"
+        "\n"
+        "=== Fields ===\n"
+        " 1. #/# id/Number/Not Null\n"
+        " 2. #/# name/String/Not Null\n"
+        "\n"
+        "=== Data ===\n"
+        " 1. #?# 1\n"
+        "\n"
+        "=== End Data ===\n"
+        "=== End Section ===\n"
+        "=== End File ===\n";
+    auto pf = jtext::parse_file_structure(doc);
+    if (!pf.has_value()) return true;
+    return jtext::validate(*pf, level).report.has_errors();
 }
 
 }  // namespace
@@ -171,6 +197,59 @@ int main() {
     if (!template_validation_errors("VALUES ({0})")) {
         std::cerr << "FAIL[tmpl-zero]: {0} accepted\n"; ++failures;
     }
+
+    // ─── PROOF: layered validation levels (same document, different outcomes) ───
+    using L = jtext::validation_level;
+    auto must = [&](bool cond, const char* what) {
+        if (!cond) { std::cerr << "FAIL[layer]: " << what << "\n"; ++failures; }
+    };
+
+    // A malformed date is a per-value (Standard+) check:
+    //   minimal  -> NOT flagged (fast path skips value parsing)
+    //   standard -> flagged
+    //   strict   -> flagged
+    must(!date_validation_errors("2026-13-45", L::minimal),  "bad date should pass at MINIMAL");
+    must( date_validation_errors("2026-13-45", L::standard), "bad date should fail at STANDARD");
+    must( date_validation_errors("2026-13-45", L::strict),   "bad date should fail at STRICT");
+
+    // A template {N} out of range is a Strict-only check:
+    //   minimal  -> NOT flagged
+    //   standard -> NOT flagged
+    //   strict   -> flagged
+    must(!template_validation_errors("VALUES ({3})", L::minimal),  "tmpl {3} should pass at MINIMAL");
+    must(!template_validation_errors("VALUES ({3})", L::standard), "tmpl {3} should pass at STANDARD");
+    must( template_validation_errors("VALUES ({3})", L::strict),   "tmpl {3} should fail at STRICT");
+
+    // A missing required (Not Null) field is checked at EVERY level:
+    must(required_missing_errors(L::minimal),  "missing-required should fail at MINIMAL");
+    must(required_missing_errors(L::standard), "missing-required should fail at STANDARD");
+    must(required_missing_errors(L::strict),   "missing-required should fail at STRICT");
+
+    // Sanity: a fully valid document passes cleanly at every level.
+    must(!date_validation_errors("2026-06-23", L::minimal),  "valid doc should pass at MINIMAL");
+    must(!date_validation_errors("2026-06-23", L::standard), "valid doc should pass at STANDARD");
+    must(!date_validation_errors("2026-06-23", L::strict),   "valid doc should pass at STRICT");
+
+    // Visible proof table (printed so a direct run shows the layering).
+    auto yn = [](bool err) { return err ? "ERROR" : "clean"; };
+    std::cout << "\nLayered validation proof — same document, varying --level:\n"
+              << "                              minimal   standard  strict\n";
+    std::cout << "  bad date '2026-13-45'        "
+              << yn(date_validation_errors("2026-13-45", L::minimal))  << "     "
+              << yn(date_validation_errors("2026-13-45", L::standard)) << "     "
+              << yn(date_validation_errors("2026-13-45", L::strict))   << "\n";
+    std::cout << "  template {3} (2 fields)      "
+              << yn(template_validation_errors("VALUES ({3})", L::minimal))  << "     "
+              << yn(template_validation_errors("VALUES ({3})", L::standard)) << "     "
+              << yn(template_validation_errors("VALUES ({3})", L::strict))   << "\n";
+    std::cout << "  missing Not Null field       "
+              << yn(required_missing_errors(L::minimal))  << "     "
+              << yn(required_missing_errors(L::standard)) << "     "
+              << yn(required_missing_errors(L::strict))   << "\n";
+    std::cout << "  valid document               "
+              << yn(date_validation_errors("2026-06-23", L::minimal))  << "     "
+              << yn(date_validation_errors("2026-06-23", L::standard)) << "     "
+              << yn(date_validation_errors("2026-06-23", L::strict))   << "\n\n";
 
     if (failures == 0) {
         std::cout << "parser/validator negative tests: all passed\n";

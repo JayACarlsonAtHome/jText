@@ -625,6 +625,12 @@ auto assemble_records(
 //  Record value validation
 // ──────────────────────────────────────────────────────────────
 
+// True when `level` is at least as thorough as `floor` (levels are ordered
+// minimal < standard < strict).
+constexpr bool level_at_least(validation_level level, validation_level floor) {
+    return static_cast<std::uint8_t>(level) >= static_cast<std::uint8_t>(floor);
+}
+
 // Validate that every {N} placeholder in a section's template bodies refers to
 // a declared field position (1..field_count). {0} and {N>field_count} are
 // errors. Non-numeric braces (e.g. {foo}) are literal text, not placeholders,
@@ -669,7 +675,8 @@ auto validate_record_values(
     const std::vector<field>& fields,
     const std::vector<record>& records,
     std::string_view           section_name,
-    validation_report&         report) -> void
+    validation_report&         report,
+    validation_level           level) -> void
 {
     for (std::size_t ri = 0; ri < records.size(); ++ri) {
         const auto& rec = records[ri];
@@ -680,6 +687,7 @@ auto validate_record_values(
             const bool present = v.has_value();
             const bool empty   = present && v->empty();
 
+            // Required (Not Null) presence is checked at every level (incl. minimal).
             if (fld.required) {
                 if (!present || empty) {
                     report_issue(report, issue_severity::error,
@@ -693,6 +701,9 @@ auto validate_record_values(
             }
 
             if (!present || empty) continue;  // Nullable + absent/empty: NULL per spec
+
+            // Per-value type/format/length checks are Standard+ (skipped at minimal).
+            if (!level_at_least(level, validation_level::standard)) continue;
 
             // Type checks (only when there's a value to check).
             switch (fld.type) {
@@ -817,7 +828,7 @@ auto interpret_header(
 //  validate entry point
 // ──────────────────────────────────────────────────────────────
 
-auto validate(const parsed_file& pf) -> validate_result
+auto validate(const parsed_file& pf, validation_level level) -> validate_result
 {
     validate_result vr;
 
@@ -846,11 +857,11 @@ auto validate(const parsed_file& pf) -> validate_result
         const auto fc = vs.fields.size();
         vs.records   = assemble_records(sec, fc, vr.report);
 
-        validate_record_values(vs.fields, vs.records, vs.name, vr.report);
+        validate_record_values(vs.fields, vs.records, vs.name, vr.report, level);
 
-        // Template {N} placeholders must reference declared fields. Skip when the
+        // Template {N} placeholder range is a strict-level check. Skip when the
         // section's fields come from an include — the resolved count is unknown.
-        if (sec.includes.empty()) {
+        if (level_at_least(level, validation_level::strict) && sec.includes.empty()) {
             validate_template_placeholders(vs.templates, fc, vs.name, vr.report);
         }
 
