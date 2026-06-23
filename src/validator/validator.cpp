@@ -205,33 +205,36 @@ auto looks_like_number(std::string_view s) -> bool
     return has_digit;
 }
 
-// Date: ISO 8601 format. Accept either:
-//   YYYY-MM-DD
-//   YYYY-MM-DDTHH:MM:SS  (with optional .frac and timezone Z or ±HH:MM)
-// We do not validate that the date is a real calendar date (Feb 30
-// would pass here); structural shape is sufficient for now. A future
-// pass can tighten if needed.
+// Date: STRICT calendar date, exactly YYYY-MM-DD — nothing else.
+//
+// Date interpretation is notoriously locale/country-dependent (is 03-04-05 in
+// March or April? which is the year?), so jText deliberately requires the one
+// unambiguous ISO form and rejects everything else: no datetimes, no times, no
+// alternate separators, no 2-digit years. The value is also checked as a real
+// calendar date (month 1-12, day valid for the month, leap-year-aware), so
+// Feb 30 / 2026-13-45 are rejected too.
 auto looks_like_date(std::string_view s) -> bool
 {
-    if (s.size() < 10) return false;
-    // YYYY-MM-DD prefix
+    if (s.size() != 10) return false;
     auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
     if (!is_digit(s[0]) || !is_digit(s[1]) || !is_digit(s[2]) || !is_digit(s[3])) return false;
     if (s[4] != '-') return false;
     if (!is_digit(s[5]) || !is_digit(s[6])) return false;
     if (s[7] != '-') return false;
     if (!is_digit(s[8]) || !is_digit(s[9])) return false;
-    if (s.size() == 10) return true;
-    // Datetime: 'T' then HH:MM:SS plus optional fragments
-    if (s[10] != 'T' && s[10] != ' ') return false;
-    if (s.size() < 19) return false;
-    if (!is_digit(s[11]) || !is_digit(s[12])) return false;
-    if (s[13] != ':') return false;
-    if (!is_digit(s[14]) || !is_digit(s[15])) return false;
-    if (s[16] != ':') return false;
-    if (!is_digit(s[17]) || !is_digit(s[18])) return false;
-    // We don't strictly validate the rest (fractional, timezone).
-    return true;
+
+    const int year  = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
+    const int month = (s[5] - '0') * 10 + (s[6] - '0');
+    const int day   = (s[8] - '0') * 10 + (s[9] - '0');
+
+    if (month < 1 || month > 12) return false;
+
+    static constexpr int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int max_day = days_in_month[month - 1];
+    const bool leap = (year % 4 == 0) && (year % 100 != 0 || year % 400 == 0);
+    if (month == 2 && leap) max_day = 29;
+
+    return day >= 1 && day <= max_day;
 }
 
 }  // anonymous namespace
@@ -682,8 +685,8 @@ auto validate_record_values(
                                  std::format("section '{}', record {}, field {} ({})",
                                              section_name, ri + 1, fld.position, fld.name),
                                  std::format("value '{}' is not a valid Date "
-                                             "(expected YYYY-MM-DD or "
-                                             "YYYY-MM-DDTHH:MM:SS)", *v));
+                                             "(required format is exactly "
+                                             "YYYY-MM-DD)", *v));
                 }
                 break;
             }

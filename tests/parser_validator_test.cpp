@@ -8,6 +8,7 @@
 
 #include "parser/line.hpp"
 #include "parser/section.hpp"
+#include "validator/validator.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -44,6 +45,48 @@ void expect_ok(std::string_view in, const char* what) {
     }
 }
 
+// Build a minimal valid jText file carrying `date` in a Date field, parse +
+// validate it, and report whether validation produced any error. Everything
+// else in the document is valid, so an error means the date was rejected.
+bool date_validation_errors(const std::string& date) {
+    const std::string doc =
+        "=== jText File ===\n"
+        " 1. #?# date_test\n"
+        " 2. #?# 2026-06-23\n"
+        " 3. #?# strict date validation\n"
+        " 4. #?# 0.6\n"
+        "\n"
+        "=== Section: D ===\n"
+        "\n"
+        "=== Fields ===\n"
+        " 1. #/# id/Number/Not Null\n"
+        " 2. #/# d/Date/Nullable\n"
+        "\n"
+        "=== Data ===\n"
+        " 1. #?# 1\n"
+        " 2. #?# " + date + "\n"
+        "\n"
+        "=== End Data ===\n"
+        "=== End Section ===\n"
+        "=== End File ===\n";
+    auto pf = jtext::parse_file_structure(doc);
+    if (!pf.has_value()) return true;  // structural rejection counts as an error
+    return jtext::validate(*pf).report.has_errors();
+}
+
+void expect_date_ok(const std::string& date) {
+    if (date_validation_errors(date)) {
+        std::cerr << "FAIL[date-ok]: valid date rejected: \"" << date << "\"\n";
+        ++failures;
+    }
+}
+void expect_date_rejected(const std::string& date) {
+    if (!date_validation_errors(date)) {
+        std::cerr << "FAIL[date-reject]: invalid date accepted: \"" << date << "\"\n";
+        ++failures;
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -76,6 +119,16 @@ int main() {
     expect_ok("1. #?# hello world", "ok-simple-data");
     expect_ok("1. #/# A/B/C",       "ok-hierarchy");
     expect_ok("1. <<< !!!END!!!",   "ok-sentinel");
+
+    // --- strict Date validation: exactly YYYY-MM-DD, real calendar date ---
+    expect_date_ok("2026-06-23");                 // ordinary valid date
+    expect_date_ok("2024-02-29");                 // valid leap day
+    expect_date_rejected("2026-02-29");           // Feb 29 in a non-leap year
+    expect_date_rejected("2026-13-45");           // month/day out of range
+    expect_date_rejected("2026-06-23T10:00:00");  // datetime no longer accepted
+    expect_date_rejected("2026/06/23");           // wrong separator
+    expect_date_rejected("06-23-2026");           // wrong order / not ISO
+    expect_date_rejected("26-06-23");             // 2-digit year
 
     if (failures == 0) {
         std::cout << "parser/validator negative tests: all passed\n";
