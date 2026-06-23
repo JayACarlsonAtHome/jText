@@ -28,12 +28,31 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
 #include <format>
 
+#include <unistd.h>      // pipe, fork, dup2, read, execvp, _exit
+#include <sys/wait.h>    // waitpid
+
 namespace fs = std::filesystem;
+
+// Accept only a safe SQL identifier (table name): leading letter/underscore,
+// then letters/digits/underscores, <= 63 chars (PostgreSQL's NAMEDATALEN-1).
+// Rejecting anything else is what stops SQL/where-clause injection through the
+// table name extracted from the user-supplied descriptor.
+static bool is_safe_identifier(const std::string& s) {
+    if (s.empty() || s.size() > 63) return false;
+    const unsigned char c0 = static_cast<unsigned char>(s[0]);
+    if (!(std::isalpha(c0) || c0 == '_')) return false;
+    for (char ch : s) {
+        const unsigned char u = static_cast<unsigned char>(ch);
+        if (!(std::isalnum(u) || u == '_')) return false;
+    }
+    return true;
+}
 
 // --- Simple result row holder (tab-separated from psql) ---
 struct ColumnMeta {
@@ -49,21 +68,51 @@ static std::string trim(const std::string& s) {
     return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
 }
 
-// Run a psql command and capture stdout. Returns empty on failure.
+// Run a psql command and capture stdout+stderr. Returns empty on failure.
+//
+// Hardened: the SQL is passed as a single argv element to execvp() — there is
+// NO shell, so nothing in `sql` (table names, query text) can be interpreted as
+// a shell metacharacter or command. This closes the command-injection path that
+// the previous popen("psql … -c \"" + sql + "\"") construction opened.
 static std::string run_psql(const std::string& sql, bool tuples_only = true) {
-    std::string cmd = "psql -X -t -A -F $'\\t' ";
-    if (tuples_only) cmd += "-t ";
-    cmd += "-c \"" + sql + "\" 2>&1";
+    int fds[2];
+    if (::pipe(fds) != 0) return {};
 
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return {};
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(fds[0]);
+        ::close(fds[1]);
+        return {};
+    }
 
+    if (pid == 0) {
+        // Child: send stdout+stderr to the pipe, then exec psql directly.
+        ::dup2(fds[1], STDOUT_FILENO);
+        ::dup2(fds[1], STDERR_FILENO);
+        ::close(fds[0]);
+        ::close(fds[1]);
+        // Field separator is a literal tab; -A unaligned, -t tuples-only, -X no rc.
+        std::vector<char*> argv;
+        auto push = [&](const char* s) { argv.push_back(const_cast<char*>(s)); };
+        push("psql"); push("-X"); push("-A"); push("-F"); push("\t");
+        if (tuples_only) push("-t");
+        push("-c"); push(sql.c_str());
+        argv.push_back(nullptr);
+        ::execvp("psql", argv.data());
+        ::_exit(127);  // exec failed (psql not found, etc.)
+    }
+
+    // Parent: read everything from the pipe, then reap the child.
+    ::close(fds[1]);
     std::string result;
     char buffer[4096];
-    while (fgets(buffer, sizeof(buffer), pipe)) {
-        result += buffer;
+    ssize_t n;
+    while ((n = ::read(fds[0], buffer, sizeof(buffer))) > 0) {
+        result.append(buffer, static_cast<std::size_t>(n));
     }
-    pclose(pipe);
+    ::close(fds[0]);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
     return result;
 }
 
@@ -141,6 +190,15 @@ int main(int argc, char** argv) {
         // strip schema if present
         size_t dot = table_name.find('.');
         if (dot != std::string::npos) table_name = table_name.substr(dot + 1);
+    }
+
+    // Defense-in-depth: the table name is interpolated into SQL sent to psql, so
+    // it must be a legal identifier. Reject anything else (e.g. an injected
+    // "tools'; DROP TABLE x; --") before we build or run any query.
+    if (!is_safe_identifier(table_name)) {
+        std::cerr << "ERROR: refusing unsafe/invalid table name '" << table_name
+                  << "' (expected a plain SQL identifier from the descriptor's FROM clause)\n";
+        return 4;
     }
 
     std::cout << "Retrieving structure for table: " << table_name << "\n";

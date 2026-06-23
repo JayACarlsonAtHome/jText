@@ -37,6 +37,8 @@
 #include <vector>
 #include <chrono>
 #include <format>
+#include <charconv>
+#include <optional>
 
 namespace fs = std::filesystem;
 
@@ -49,48 +51,75 @@ static auto load_file(const fs::path& path) -> std::string
     return content;
 }
 
-// Produce the SQL literal for one field value (prototype, sample-specific).
-// This function is deliberately simple and does no database-specific magic.
-// The author controls quoting, NULL handling, and whether identity columns
-// are included via the templates they write in the jText file.
-static auto sql_literal(std::size_t pos1, const std::optional<std::string>& val) -> std::string
+// Quote a value as a SQL string literal, escaping embedded single quotes by
+// doubling them (standard SQL). Other bytes — including newlines and
+// backslashes — are emitted verbatim, which is correct for SQL standard string
+// literals (standard_conforming_strings). This is the single choke point for
+// turning untrusted text into a safe quoted literal.
+static auto sql_string_literal(const std::string& v) -> std::string
 {
-    if (!val.has_value()) {
-        return "NULL";                     // missing field
-    }
-    const std::string& v = *val;
-
-    if (pos1 == 1) {
-        // id - Number, Not Null
-        return v.empty() ? "NULL" : v;
-    }
-    if (pos1 == 4) {
-        // acquired - Date, Nullable
-        if (v.empty()) return "NULL";
-        return "'" + v + "'";
-    }
-    // All others are String (Nullable or Not Null)
-    if (v.empty()) {
-        return "''";                       // deliberate empty string for Nullable String
-    }
-    // Escape single quotes by doubling
-    std::string esc;
+    std::string out;
+    out.reserve(v.size() + 2);
+    out += '\'';
     for (char c : v) {
-        esc += c;
-        if (c == '\'') esc += '\'';
+        if (c == '\'') out += '\'';        // double the quote
+        out += c;
     }
-    return "'" + esc + "'";
+    out += '\'';
+    return out;
+}
+
+// Is the whole string a plain base-10 integer (optionally signed)? Used to
+// decide whether a Number field can be emitted unquoted.
+static auto is_plain_integer(const std::string& v) -> bool
+{
+    if (v.empty()) return false;
+    long long n = 0;
+    const char* first = v.data();
+    const char* last  = v.data() + v.size();
+    auto [ptr, ec] = std::from_chars(first, last, n);
+    return ec == std::errc{} && ptr == last;
+}
+
+// Produce the SQL literal for one field value, driven by the field's declared
+// TYPE (not by column position). This is schema-agnostic and injection-safe:
+//   - String : missing(nullopt) -> NULL; empty -> '' (preserved); else quoted+escaped.
+//   - Number : missing/empty -> NULL; a plain integer is emitted unquoted; any
+//              other text is quoted+escaped defensively (the validator normally
+//              rejects non-numeric Number values before we get here).
+//   - Date   : missing/empty -> NULL; always quoted+escaped (never raw).
+static auto sql_literal(jtext::field_type type, const std::optional<std::string>& val) -> std::string
+{
+    switch (type) {
+    case jtext::field_type::number_type:
+        if (!val.has_value() || val->empty()) return "NULL";
+        return is_plain_integer(*val) ? *val : sql_string_literal(*val);
+    case jtext::field_type::date_type:
+        if (!val.has_value() || val->empty()) return "NULL";
+        return sql_string_literal(*val);
+    case jtext::field_type::string_type:
+    default:
+        if (!val.has_value()) return "NULL";   // missing field
+        if (val->empty())     return "''";     // deliberate empty string for Nullable String
+        return sql_string_literal(*val);
+    }
 }
 
 // Substitute {1}..{N} in the template body with correctly quoted literals.
+// Field types come from the validated section schema; value position i maps to
+// field i (1-based via {i+1}). Positions beyond the declared fields default to
+// String quoting (safe).
 static auto substitute_record(const std::string& tmpl,
-                              const jtext::record& rec) -> std::string
+                              const jtext::record& rec,
+                              const std::vector<jtext::field>& fields) -> std::string
 {
     std::string out = tmpl;
 
     for (std::size_t i = 0; i < rec.values.size(); ++i) {
+        const jtext::field_type type =
+            (i < fields.size()) ? fields[i].type : jtext::field_type::string_type;
         std::string placeholder = "{" + std::to_string(i + 1) + "}";
-        std::string replacement = sql_literal(i + 1, rec.values[i]);
+        std::string replacement = sql_literal(type, rec.values[i]);
 
         std::string::size_type pos = 0;
         while ((pos = out.find(placeholder, pos)) != std::string::npos) {
@@ -198,10 +227,17 @@ int main(int argc, char** argv)
             if (!first) output_sql += "\n";
             first = false;
             jtext::record temp_rec = rec;
-            if (rec.record_id > 0 && (rec.values.empty() || !rec.values[0].has_value() || std::stoll(*rec.values[0]) != static_cast<long long>(rec.record_id))) {
+            // ts_store-style logs carry the event id as record_id; surface it as
+            // field 1 unless the record already leads with that exact integer.
+            // (Parse defensively: a non-numeric leading value must not throw.)
+            const bool leads_with_id =
+                !rec.values.empty() && rec.values[0].has_value() &&
+                is_plain_integer(*rec.values[0]) &&
+                std::stoll(*rec.values[0]) == static_cast<long long>(rec.record_id);
+            if (rec.record_id > 0 && !leads_with_id) {
                 temp_rec.values.insert(temp_rec.values.begin(), std::to_string(rec.record_id));
             }
-            output_sql += substitute_record(insert_template_body, temp_rec);
+            output_sql += substitute_record(insert_template_body, temp_rec, sec.fields);
         }
     }
 

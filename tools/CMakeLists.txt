@@ -37,5 +37,19 @@ if(JTEXT_BUILD_TOOLS)
             COMMAND ${CMAKE_COMMAND}
                 -DTOOL=$<TARGET_FILE:jtext_from_sql>
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_args.cmake)
+
+        # Hardening regression tests.
+        add_test(NAME tool_jtext_xtox_sql_escaping
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOL=$<TARGET_FILE:jtext_xtox_sql>
+                -DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures
+                -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_xtox_escape.cmake)
+
+        add_test(NAME tool_jtext_from_sql_injection
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOL=$<TARGET_FILE:jtext_from_sql>
+                -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_injection.cmake)
     endif()
 endif()
