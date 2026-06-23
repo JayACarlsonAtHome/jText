@@ -353,6 +353,19 @@ auto parse_line(std::string_view raw)
                        std::format("multiline sentinel must be at least 3 "
                                    "characters, got '{}'", sentinel));
         }
+        // SPEC v0.6 Section 5.2: the sentinel must be printable ASCII. It already
+        // cannot contain whitespace (it was read up to the next whitespace), so
+        // here we reject control characters and non-ASCII bytes — preventing a
+        // stray binary/control byte from passing as a valid sentinel.
+        for (const char sc : sentinel) {
+            const auto u = static_cast<unsigned char>(sc);
+            if (u < 0x21 || u > 0x7e) {
+                return err(parse_error_kind::multiline_sentinel_invalid,
+                           col,
+                           "multiline sentinel must be printable ASCII "
+                           "(no control or non-ASCII characters)");
+            }
+        }
 
         // Optional trailing text after whitespace = treated as a comment.
         col += sentinel_len;
