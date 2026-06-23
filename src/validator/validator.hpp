@@ -181,6 +181,9 @@ enum class issue_kind : std::uint8_t {
     header_unknown_field,             // header line number > recognized range
     header_invalid_jtext_version,     // jtext_version not parseable
 
+    // Templates
+    template_placeholder_out_of_range, // {N} references field 0 or > field_count
+
     // Whole-section
     section_empty,                    // section has no records (only warning)
     section_duplicate_name,           // two sections with the same name

@@ -69,6 +69,7 @@ auto to_string(issue_kind k) -> std::string_view
         case issue_kind::record_hierarchical_value:    return "record_hierarchical_value";
         case issue_kind::header_unknown_field:         return "header_unknown_field";
         case issue_kind::header_invalid_jtext_version: return "header_invalid_jtext_version";
+        case issue_kind::template_placeholder_out_of_range: return "template_placeholder_out_of_range";
         case issue_kind::section_empty:                return "section_empty";
         case issue_kind::section_duplicate_name:       return "section_duplicate_name";
     }
@@ -624,6 +625,46 @@ auto assemble_records(
 //  Record value validation
 // ──────────────────────────────────────────────────────────────
 
+// Validate that every {N} placeholder in a section's template bodies refers to
+// a declared field position (1..field_count). {0} and {N>field_count} are
+// errors. Non-numeric braces (e.g. {foo}) are literal text, not placeholders,
+// and are ignored. Callers skip this for sections whose fields come from an
+// include (the resolved field count is unknown there).
+auto validate_template_placeholders(
+    const std::vector<parsed_template>& templates,
+    std::size_t                         field_count,
+    std::string_view                    section_name,
+    validation_report&                  report) -> void
+{
+    for (const auto& tpl : templates) {
+        const std::string& body = tpl.body;
+        for (std::size_t i = 0; i + 1 < body.size(); ++i) {
+            if (body[i] != '{') continue;
+            std::size_t j = i + 1;
+            unsigned long long n = 0;
+            while (j < body.size() && body[j] >= '0' && body[j] <= '9') {
+                if (n <= field_count + 1) {            // enough to decide range
+                    n = n * 10 + static_cast<unsigned>(body[j] - '0');
+                }
+                ++j;
+            }
+            // A placeholder is exactly {<digits>}; anything else is literal text.
+            if (j == i + 1 || j >= body.size() || body[j] != '}') continue;
+            if (n == 0 || n > field_count) {
+                report_issue(report, issue_severity::error,
+                             issue_kind::template_placeholder_out_of_range,
+                             0,
+                             std::format("section '{}', template '{}'",
+                                         section_name, tpl.name),
+                             std::format("placeholder {{{}}} is out of range "
+                                         "(section declares {} field(s))",
+                                         n, field_count));
+            }
+            i = j;  // skip past this placeholder
+        }
+    }
+}
+
 auto validate_record_values(
     const std::vector<field>& fields,
     const std::vector<record>& records,
@@ -806,6 +847,12 @@ auto validate(const parsed_file& pf) -> validate_result
         vs.records   = assemble_records(sec, fc, vr.report);
 
         validate_record_values(vs.fields, vs.records, vs.name, vr.report);
+
+        // Template {N} placeholders must reference declared fields. Skip when the
+        // section's fields come from an include — the resolved count is unknown.
+        if (sec.includes.empty()) {
+            validate_template_placeholders(vs.templates, fc, vs.name, vr.report);
+        }
 
         vr.file.sections.push_back(std::move(vs));
     }

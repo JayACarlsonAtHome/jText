@@ -87,6 +87,37 @@ void expect_date_rejected(const std::string& date) {
     }
 }
 
+// Build a 2-field section whose template body is `body`, then parse + validate
+// and report whether validation produced any error. Used to exercise the
+// template {N} placeholder range check.
+bool template_validation_errors(const std::string& body) {
+    const std::string doc =
+        "=== jText File ===\n"
+        " 1. #?# tmpl_test\n"
+        "\n"
+        "=== Section: S ===\n"
+        "\n"
+        "=== Template: T ===\n"
+        " 1. <<< !!!T!!!\n"
+        + body + "\n"
+        "!!!T!!!\n"
+        "\n"
+        "=== Fields ===\n"
+        " 1. #/# a/String/Nullable\n"
+        " 2. #/# b/String/Nullable\n"
+        "\n"
+        "=== Data ===\n"
+        " 1. #?# x\n"
+        " 2. #?# y\n"
+        "\n"
+        "=== End Data ===\n"
+        "=== End Section ===\n"
+        "=== End File ===\n";
+    auto pf = jtext::parse_file_structure(doc);
+    if (!pf.has_value()) return true;
+    return jtext::validate(*pf).report.has_errors();
+}
+
 }  // namespace
 
 int main() {
@@ -129,6 +160,17 @@ int main() {
     expect_date_rejected("2026/06/23");           // wrong separator
     expect_date_rejected("06-23-2026");           // wrong order / not ISO
     expect_date_rejected("26-06-23");             // 2-digit year
+
+    // --- template {N} placeholder range (section declares 2 fields) ---
+    if (template_validation_errors("INSERT VALUES ({1}, {2})")) {
+        std::cerr << "FAIL[tmpl-ok]: in-range placeholders rejected\n"; ++failures;
+    }
+    if (!template_validation_errors("INSERT VALUES ({1}, {3})")) {
+        std::cerr << "FAIL[tmpl-range]: {3} accepted with only 2 fields\n"; ++failures;
+    }
+    if (!template_validation_errors("VALUES ({0})")) {
+        std::cerr << "FAIL[tmpl-zero]: {0} accepted\n"; ++failures;
+    }
 
     if (failures == 0) {
         std::cout << "parser/validator negative tests: all passed\n";
