@@ -1,0 +1,35 @@
+//File:    sample.jtFull
+//Date:    2026-06-23
+//Purpose: jText Data File — minimal valid fixture for the jtext_xtox_sql test
+//
+
+=== jText File ===
+ 1. #?# sample.jtFull                              # filename
+ 2. #?# 2026-06-23                                 # date
+ 3. #?# Minimal valid sample for jtext_xtox_sql    # description
+ 4. #?# 0.6                                        # jtext_version
+
+=== Section: Sample ===
+
+=== Template: SQL Insert ===
+ 1. <<< !!!INS!!!
+INSERT INTO sample (id, name, category) VALUES ({1}, {2}, {3});
+!!!INS!!!
+
+=== Fields ===
+ 1. #/# id/Number/Not Null                         # primary key
+ 2. #/# name/String/80/Not Null                    # item name
+ 3. #/# category/String/100/Not Null               # category
+
+=== Data ===
+ 1. #?# 1
+ 2. #?# Stanley Hammer 16oz
+ 3. #?# Hand Tools
+
+ 1. #?# 2
+ 2. #?# DeWalt Drill DCD777
+ 3. #?# Power Tools
+
+=== End Data ===
+=== End Section ===
+=== End File ===

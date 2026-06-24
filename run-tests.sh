@@ -1,38 +1,36 @@
 #!/usr/bin/env bash
 #
-# jText standalone build + test runner.
+# jText test runner — builds and tests both self-contained version worlds:
+#   v001 (C++23) and v002 (C++26).
 #
-# The library + tools here are kept identical to jac313's in-tree jText package,
-# but this repo has no jac313_test_cli driver — so this is the self-contained way
-# to configure, build, and run the test suite (library + tools).
+# Each version world is independent (cd v001 / cd v002 and use its own CMake).
+# This driver just does both. The DB->jText round-trip in jtext_from_sql needs a
+# live PostgreSQL; its ctest only checks argument handling otherwise (skipped,
+# never a hard failure).
 #
 # Usage:
-#   ./run-tests.sh                 # configure (Debug) -> build -> ctest
+#   ./run-tests.sh                 # textual build + ctest for both versions
+#   ./run-tests.sh --modules       # also build + test the C++ module front-ends
 #   CXX=clang++ ./run-tests.sh     # force a compiler
-#   ./run-tests.sh -DJTEXT_BUILD_TOOLS=OFF   # extra cmake args pass through
 #
-# jText builds at cxx_std_26, so a recent toolchain is required (g++-15 / gcc
-# toolset 15 / Clang 20+). The DB->jText round-trip in jtext_from_sql needs a
-# live PostgreSQL; its ctest only checks argument handling (round-trip skipped
-# without psql + a target DB).
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BUILD="${ROOT}/build"
+MOD=0
+for a in "$@"; do case "$a" in --modules) MOD=1 ;; *) echo "unknown arg: $a"; exit 2 ;; esac; done
 
-# --- pick an activation prefix + C++ compiler (mirrors jac313 bootstrap) ---
-ACT=""
-CXX="${CXX:-}"
-if [ -z "$CXX" ]; then
-    if   command -v g++-15 >/dev/null 2>&1;            then CXX=g++-15
-    elif command -v gcc-toolset-15-env >/dev/null 2>&1; then ACT="gcc-toolset-15-env"; CXX=g++
-    elif command -v g++ >/dev/null 2>&1;               then CXX=g++
-    elif command -v clang++ >/dev/null 2>&1;           then CXX=clang++
-    else echo "run-tests: no C++ compiler found (need g++-15 / gcc-toolset-15 / clang)" >&2; exit 1
-    fi
-fi
+CXX_ARG=()
+[ -n "${CXX:-}" ] && CXX_ARG=(-DCMAKE_CXX_COMPILER="$CXX")
 
-echo "jText runner: compiler ${ACT:+[$ACT] }$CXX   build dir: $BUILD"
-$ACT cmake -S "$ROOT" -B "$BUILD" -DCMAKE_CXX_COMPILER="$CXX" -DCMAKE_BUILD_TYPE=Debug "$@"
-$ACT cmake --build "$BUILD" -j
-$ACT ctest --test-dir "$BUILD" --output-on-failure
+for v in v001 v002; do
+  echo "=================== jText $v ==================="
+  cmake -G Ninja -S "$ROOT/$v" -B "$ROOT/$v/build" -DCMAKE_BUILD_TYPE=Debug "${CXX_ARG[@]}"
+  cmake --build "$ROOT/$v/build"
+  ctest --test-dir "$ROOT/$v/build" --output-on-failure
+  if [ "$MOD" = 1 ]; then
+    echo "------------------- $v modules -------------------"
+    cmake -G Ninja -S "$ROOT/$v" -B "$ROOT/$v/build-mod" -DCMAKE_BUILD_TYPE=Debug -DJTEXT_BUILD_MODULES=ON "${CXX_ARG[@]}"
+    cmake --build "$ROOT/$v/build-mod"
+    ctest --test-dir "$ROOT/$v/build-mod" --output-on-failure -R module
+  fi
+done
+echo "All jText version worlds built and tested."

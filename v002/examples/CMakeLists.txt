@@ -1,0 +1,2 @@
+add_executable(jtext_v002_example v002_example.cpp)
+target_link_libraries(jtext_v002_example PRIVATE jText::jText)

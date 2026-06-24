@@ -1,0 +1,31 @@
+//File:    escape.jtFull
+//Date:    2026-06-23
+//Purpose: jText Data File — SQL-escaping regression fixture for jtext_xtox_sql
+//
+
+=== jText File ===
+ 1. #?# escape.jtFull                              # filename
+ 2. #?# 2026-06-23                                 # date
+ 3. #?# Values with single quotes for escaping     # description
+ 4. #?# 0.6                                         # jtext_version
+
+=== Section: Escape ===
+
+=== Template: SQL Insert ===
+ 1. <<< !!!INS!!!
+INSERT INTO escape (id, name, category) VALUES ({1}, {2}, {3});
+!!!INS!!!
+
+=== Fields ===
+ 1. #/# id/Number/Not Null                         # primary key
+ 2. #/# name/String/80/Not Null                    # item name (may contain quotes)
+ 3. #/# category/String/100/Not Null               # category
+
+=== Data ===
+ 1. #?# 1
+ 2. #?# O'Reilly's "Pro" Set
+ 3. #?# Hand Tools
+
+=== End Data ===
+=== End Section ===
+=== End File ===
