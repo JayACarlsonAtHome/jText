@@ -591,6 +591,8 @@ void write_file_comment_header(std::ostream& os,
         os << "//Related: " << related << "\n";
     }
     os << "//\n";
+    // End-of-text-header marker for consumers (e.g. binary log readers doing
+    // safe prefix scan). Binary readers must *not* rely on getline after this.
 }
 
 std::size_t jtext_line_pad_width_for_count(std::size_t item_count) {
