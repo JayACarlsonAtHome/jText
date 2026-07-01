@@ -11,7 +11,7 @@
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.004"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.005"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
