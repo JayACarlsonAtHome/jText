@@ -101,13 +101,11 @@ auto find_comment_marker(std::string_view data_region, char b) -> std::size_t
     for (std::size_t i = 0; i < data_region.size(); ++i) {
         if (data_region[i] != b) continue;
 
-        // Need whitespace (or start-of-region) on the left.
-        const bool left_ok = (i == 0) || is_ws(data_region[i - 1]);
+        // A comment is this character with a space on each side.
+        const bool left_ok = (i > 0) && data_region[i - 1] == ' ';
         if (!left_ok) continue;
-
-        // Need whitespace or end-of-region on the right.
         const bool right_ok =
-            (i + 1 == data_region.size()) || is_ws(data_region[i + 1]);
+            (i + 1 < data_region.size()) && data_region[i + 1] == ' ';
         if (!right_ok) continue;
 
         return i;
@@ -179,7 +177,7 @@ auto split_hierarchy(std::string_view data, char sep, std::size_t col_base)
 
 auto formatter::to_string() const -> std::string
 {
-    return std::string{bookend, separator, bookend};
+    return std::string{separator, bookend};
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -220,45 +218,35 @@ auto parse_error::to_string() const -> std::string
 //  validate_formatter
 // ──────────────────────────────────────────────────────────────
 
-auto validate_formatter(std::string_view three_chars)
+auto validate_formatter(std::string_view marker)
     -> std::expected<formatter, parse_error>
 {
-    if (three_chars.size() < 3) {
+    if (marker.size() < 2) {
         return err(parse_error_kind::formatter_too_short, 0,
-                   std::format("formatter must be exactly 3 characters, got {}",
-                               three_chars.size()));
+                   std::format("formatter must be at least 2 characters, got {}",
+                               marker.size()));
     }
-    const char b1 = three_chars[0];
-    const char s  = three_chars[1];
-    const char b2 = three_chars[2];
-
-    if (!is_valid_formatter_char(b1)) {
-        return err(parse_error_kind::formatter_invalid_char, 0,
-                   std::format("formatter bookend '{}' is not a valid character "
-                               "(must be printable ASCII, non-alphanumeric, "
-                               "non-whitespace)", b1));
+    for (std::size_t i = 0; i < marker.size(); ++i) {
+        if (!is_valid_formatter_char(marker[i])) {
+            return err(parse_error_kind::formatter_invalid_char, i,
+                       std::format("formatter character '{}' is not valid "
+                                   "(must be printable ASCII, non-alphanumeric, "
+                                   "non-whitespace)", marker[i]));
+        }
     }
-    if (!is_valid_formatter_char(s)) {
-        return err(parse_error_kind::formatter_invalid_char, 1,
-                   std::format("formatter separator '{}' is not a valid character "
-                               "(must be printable ASCII, non-alphanumeric, "
-                               "non-whitespace)", s));
+    // Keep the right two characters. A longer opener drops what is in front.
+    const char s = marker[marker.size() - 2];
+    const char b = marker[marker.size() - 1];
+    if (s == b) {
+        return err(parse_error_kind::formatter_separator_equals_bookend, marker.size() - 2,
+                   std::format("formatter separator '{}' matches the comment "
+                               "character; they must differ", s));
     }
-    if (!is_valid_formatter_char(b2)) {
-        return err(parse_error_kind::formatter_invalid_char, 2,
-                   std::format("formatter bookend '{}' is not a valid character",
-                               b2));
-    }
-    if (b1 != b2) {
-        return err(parse_error_kind::formatter_bookends_mismatch, 2,
-                   std::format("formatter bookends differ: '{}' and '{}'", b1, b2));
-    }
-    if (b1 == s) {
-        return err(parse_error_kind::formatter_separator_equals_bookend, 1,
-                   std::format("formatter bookend and separator are both '{}'; "
-                               "they must differ", b1));
-    }
-    return formatter{b1, s};
+    formatter fmt;
+    fmt.stand_in  = b;
+    fmt.separator = s;
+    fmt.bookend   = b;
+    return fmt;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -380,12 +368,15 @@ auto parse_line(std::string_view raw)
         return out;
     }
 
-    // 6. Standard data line: read 3 chars → formatter.
-    if (sv.size() < 3) {
+    // 6. Marker run. Keep the right two characters: splice, then comment.
+    std::size_t marker_len = 0;
+    while (marker_len < sv.size() && is_valid_formatter_char(sv[marker_len]))
+        ++marker_len;
+    if (marker_len < 2) {
         return err(parse_error_kind::formatter_too_short, col,
-                   "expected 3-character formatter after line number");
+                   "expected a marker of at least 2 characters after the line number");
     }
-    const std::string_view fmt_view = sv.substr(0, 3);
+    const std::string_view fmt_view = sv.substr(0, marker_len);
     auto fmt_or_err = validate_formatter(fmt_view);
     if (!fmt_or_err) {
         auto e = fmt_or_err.error();
@@ -393,13 +384,23 @@ auto parse_line(std::string_view raw)
         return std::unexpected{std::move(e)};
     }
     const formatter fmt = *fmt_or_err;
-    sv.remove_prefix(3);
-    col += 3;
+    sv.remove_prefix(marker_len);
+    col += marker_len;
 
     // 7. Whitespace between formatter and data. If the line ends here
     // (empty data with no comment), that's the "explicitly empty"
     // case from SPEC 2.6.1 — still valid.
     col += skip_ws(sv);
+
+    // [] means the rest of the line is one value. No splice, no comment.
+    if (fmt.raw_data()) {
+        parsed_line out;
+        out.kind      = line_kind::data;
+        out.number    = number;
+        out.fmt       = fmt;
+        out.hierarchy = {std::string{sv}};
+        return out;
+    }
 
     // 8. Scan the rest for the comment marker.
     const auto data_region_col = col;

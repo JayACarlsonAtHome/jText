@@ -34,14 +34,14 @@ The `//` block is for humans (`head`, git, grep). The `#` block is for jText too
 
 # Fields: tests/jtext_includes/run_manifest_runmeta_fields.jtFlds
 
- 1. #|# OS_001|ssd|Smoke|2026-06-08T00:00:00Z|gcc|113|113|0
+ 1. |# OS_001|ssd|Smoke|2026-06-08T00:00:00Z|gcc|113|113|0
 
 -- Scenarios --
 
 # Fields: tests/jtext_includes/run_manifest_scenarios_fields.jtFlds
 
-  1. #|# TS_STORE_TEST_001|gcc|binary|off|100|0.005|PASS|logs/...
- 10. #|# TS_STORE_TEST_002|gcc|binary|off|100|0.005|PASS|logs/...
+  1. |# TS_STORE_TEST_001|gcc|binary|off|100|0.005|PASS|logs/...
+ 10. |# TS_STORE_TEST_002|gcc|binary|off|100|0.005|PASS|logs/...
 ```
 
 See `samples/light_profile/run_manifest.jtext` for a complete reference file.
@@ -56,21 +56,21 @@ Uses `===` section markers, optional SQL templates, and `=== Fields ===` / `=== 
 //Purpose: jText Data File
 //
 === jText File ===
- 1. #?# tools.jText                       # filename
- 2. #?# 2026-05-11                        # date
- 3. #?# Personal workshop tool catalog    # purpose
+ 1. ?# tools.jText                       # filename
+ 2. ?# 2026-05-11                        # date
+ 3. ?# Personal workshop tool catalog    # purpose
 
 === Section: Hand Tools ===
 === Fields ===
- 1. #/# id/Number/Not Null
- 2. #/# name/String/40/Not Null
- 3. #/# category/String/100/Not Null
- 4. #/# notes/String/Nullable
+ 1. /# id/Number/Not Null
+ 2. /# name/String/40/Not Null
+ 3. /# category/String/100/Not Null
+ 4. /# notes/String/Nullable
 === Data ===
- 1. #?# 1
- 2. #?# Stanley Hammer
- 3. #/# Hand Tools/Hammers/Claw
- 4. #?# 16oz fiberglass handle
+ 1. ?# 1
+ 2. ?# Stanley Hammer
+ 3. /# Hand Tools/Hammers/Claw
+ 4. ?# 16oz fiberglass handle
 === End Data ===
 === End Section ===
 ```
@@ -119,15 +119,19 @@ There's a real niche between these formats: **structured tabular records, with r
 
 Every other text format has *fixed* reserved characters: CSV reserves `,` and `"`, JSON reserves `{` and `"`, TOML reserves `=` and `[`. When your data contains those characters, you must escape them — and the escaping rules are the source of most format bugs.
 
-jText reverses this. **The author picks the structural characters per line.** If your data contains `/`, you choose a different separator. If your data contains `#`, you choose a different comment marker. The format gets out of the way of your content.
+jText reverses this. **Each line carries its own two-character marker:** `<splice><comment>`. The older marker was three characters. Dropping one character on every field line is 10 million bytes on a 10 million row compact table, and it multiplies by the number of field lines.
+
+- The first character splices fields on a compact line, and levels in a hierarchy. If the data contains `/`, choose a different splicing character.
+- The second character starts a comment when a space sits on each side of it. If the data contains `#`, choose a different comment character. The same character in the data without a space on each side stays data, and validation warns. The warning names the record id and the field number.
+- A `'` is stored as `'`.
 
 ```
- 1. #/# /usr/local/bin/node     # path, hierarchical (3 levels)
- 2. #-# 4/3 = 1.333              # fraction with literal /, comment is -
- 3. ?|? She said "hello" today  ? quotes are just text
+ 1. /# /usr/local/bin/node      # path, three levels, split on /
+ 2. |# 4/3 = 1.333              # one value; | does not appear, so the line is not split
+ 3. ?| She said "hello" today   ? the quotes stay in the text
 ```
 
-Three lines, three different formatters, each tailored to its content. No escape sequences anywhere. The file is exactly what the author typed.
+An old file may still have a three-character marker, `{1}{2}{3}`. The reader accepts it and, on ingress, keeps `{2}{3}`. Display and every later write use those two characters. `#|#` is shown and saved as `|#`. A new table schema allows only the two-character marker.
 
 ### Schema declared once, referenced by position
 
@@ -135,16 +139,16 @@ Instead of repeating field names on every record, jText declares the schema once
 
 ```
 === Fields ===
- 1. #/# customer_id/Number/Not Null
- 2. #/# name/String/40/Not Null
- 3. #/# email/String/255/Nullable
+ 1. /# customer_id/Number/Not Null
+ 2. /# name/String/40/Not Null
+ 3. /# email/String/255/Nullable
 === Data ===
- 1. #?# 1
- 2. #?# Alice
- 3. #?# alice@example.com
+ 1. ?# 1
+ 2. ?# Alice
+ 3. ?# alice@example.com
 
- 1. #?# 2
- 2. #?# Bob
+ 1. ?# 2
+ 2. ?# Bob
 === End Data ===
 ```
 
@@ -175,9 +179,9 @@ And the migration is bidirectional: an export tool reading from the database can
 ### Comments on every line
 
 ```
- 1. #/# customer_id/Number/Not Null     # primary key, auto-incremented
- 2. #/# name/String/40/Not Null         # legal name; may include suffixes
- 3. #/# email/String/255/Nullable       # primary contact email
+ 1. /# customer_id/Number/Not Null     # primary key, auto-incremented
+ 2. /# name/String/40/Not Null         # legal name; may include suffixes
+ 3. /# email/String/255/Nullable       # primary contact email
 ```
 
 Comments belong in data files. CSV and JSON don't have them; jText does, on every line.
@@ -249,14 +253,14 @@ A: There are many formats; none of them serve the niche jText targets well. CSV 
 **Q: Is this competing with JSON?**
 A: No. JSON is excellent for nested object graphs. jText doesn't try to compete in that space. jText handles tabular records; JSON handles trees and structures. Different jobs.
 
-**Q: Why the funny `#?#` and `#/#` syntax?**
-A: It's the heart of the format. Those three characters declare, for that line only, what the comment character and the hierarchy separator are. By making this per-line and author-chosen, jText eliminates every escaping rule that other formats require. There's no `\"` or `\\n` or `&amp;` anywhere — because the author picks structural characters that don't appear in their data.
+**Q: Why the funny `?#` and `/#` syntax?**
+A: It's the heart of the format. Those two characters declare, for that line only, the splicing character and the comment character. By making this per-line and author-chosen, jText eliminates every escaping rule that other formats require. There's no `\"` or `\\n` or `&amp;` anywhere — because the author picks structural characters that don't appear in their data. An older file may still say `#?#` or `#/#`. The reader keeps the last two characters.
 
 **Q: How is this related to ts_store?**
 A: [ts_store](https://github.com/JayACarlsonAtHome/ts_store) is a multithreaded ordered logging library by the same author. jText is the natural plain-text format for ts_store's output: humans can read the logs, tools can validate them, and the same file can be loaded into a SQL database when bulk analysis is needed. The two projects are designed to work together but are independently useful.
 
 ts_store emits a compact data row form for efficiency:
-`<recid>. #|# f1|f2|...`
+`<recid>. |# f1|f2|...`
 using `|` as field separator and `\x1F` (ASCII Unit Separator) as the embedded null marker (`|\x1F|` for null, `||` for empty string). jText tools and the parser fully support this variant (see SPEC.md §2.6.3).
 
 **Q: Will jText files always be parseable by future versions of jText?**

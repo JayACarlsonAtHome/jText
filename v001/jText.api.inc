@@ -11,7 +11,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.005"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.006"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -98,6 +98,18 @@ public:
     void set_table_name(std::string_view name);
     void set_auto_id(bool enabled);
 
+    // Record id (SPEC 2.6.4): field 1 of every record is a mandatory integer id.
+    // When a field-1 entry ("1. ...") arrives with its value missing, null or
+    // empty, the writer generates one: `seed` for the first record of a section,
+    // then the previous id + `step`, continuing past the largest (smallest, for a
+    // negative step) id already written in the section. Matches Identity(seed,step);
+    // the default (1, 1) matches AutoNumber / AutoID / Serial. Resets per section.
+    void set_record_id_start(std::int64_t seed, std::int64_t step = 1);
+
+    // The id most recently written or generated in the current section, so a
+    // caller can link child rows (e.g. _Ints/_Floats tables) to it.
+    [[nodiscard]] std::optional<std::int64_t> last_record_id() const noexcept { return last_record_id_; }
+
     void write_header();
 
     // Sections
@@ -152,6 +164,11 @@ private:
     void ensure_header();
     void ensure_not_finalized();
     void flush_pending_batch();   // internal helper
+    // Field-1 entry with no id: fill one in `scratch` and return it; otherwise
+    // note the id it carries and return `entry` unchanged.
+    const JTextEntry& resolve_record_id(const JTextEntry& entry, JTextEntry& scratch);
+    std::int64_t take_record_id();
+    void note_record_id(std::string_view value);
 
     std::ostream* out_ = nullptr;
     bool owns_stream_ = false;
@@ -171,6 +188,11 @@ private:
     std::vector<std::string> pending_batch_;   // stores pre-formatted lines for cheaper storage & faster flush
 
     std::size_t line_pad_width_ = 0;
+
+    // Record id generation (per section)
+    std::int64_t record_id_seed_ = 1;
+    std::int64_t record_id_step_ = 1;
+    std::optional<std::int64_t> last_record_id_;
 
     // For emitting leading standardized // comment header (File Name etc) on path-based construction
     std::string source_path_;

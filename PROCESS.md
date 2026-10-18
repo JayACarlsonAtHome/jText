@@ -69,7 +69,8 @@ The transform is a uniform **prepend `jac313::`** (and the matching module / inc
 rename). Standards are fixed per version on both sides: **v001 = C++23, v002 = C++26.**
 
 On each forward-port into jac313:
-1. Apply the namespace/module/include transform to the copied files.
+1. Apply the namespace/module/include transform to the copied files:
+   `jac313_test_cli vendor-sync vNNN/<lib>/VENDORED.jtext --write` does it and records the port.
 2. Bump the package `version()` literal (`vNNN.NNN`) in the same commit — the
    `jac313_test_cli version-check` gate enforces it.
 3. Keep the frozen consumer surface that Store depends on (the SQL sink for Qlite, the
@@ -87,9 +88,32 @@ If a bug only reproduces under jac313/Store, reproduce or add the regression tes
 **canonical** repo (the parser/validator and the SQLite wrapper are identical there), fix
 it canonical-side, then forward-port.
 
-## Optional future guard
+## Drift warnings (`vendor-check`, 2026-10-16)
 
-Because the rule is "embedded never leads canonical," a cheap, *non-fatal* check could live
-in the runner: report (don't fail) when an embedded copy contains changes the canonical
-repo lacks — the signature of an accidental in-place edit. It's a safety net, not a gate;
-the process above is the real mechanism.
+The guard exists now, and it **warns, never fails** (the Captain, 2026-10-16: "warnings on
+drift, not breaking"). Each embedded copy carries a manifest, `vNNN/<lib>/VENDORED.jtext`
+(jText; the same format jac314 uses for its vendored jac414; layout in jac313's
+`VENDORED_FORMAT.md`): the canonical repo, dir, commit
+and version it came from, the transform, and every file's SHA-256 on both sides.
+
+```
+jac313_test_cli vendor-check                  # warnings only; also run by the pre-push hook
+jac313_test_cli vendor-sync vNNN/<lib>/VENDORED.jtext            # dry run: what a port would change
+jac313_test_cli vendor-sync vNNN/<lib>/VENDORED.jtext --write    # the forward-port itself
+```
+
+`vendor-check` reports:
+- **edited in place**: an embedded file no longer matches what was ported (the failure mode
+  this document forbids);
+- **not from canonical**: a file in the copy that canonical does not have (unless listed as
+  the consumer's own, `local`: `CMakeLists.txt`, `README.md`);
+- **canonical moved ahead**: canonical files changed, added or removed since the port, with the
+  canonical HEAD and whether it has uncommitted changes. This is normal (the runway); the
+  warning just says what is waiting;
+- **baseline only**: the first manifests (2026-10-16) were written over existing copies with
+  no record of their origin, against canonical's last commit; they name how many files
+  differed then, until a real `vendor-sync` settles it.
+
+`vendor-sync` applies the transform above mechanically, never touches `local` files, refuses a
+canonical dir with uncommitted changes (green and committed first; `--allow-dirty` overrides),
+and writes a fresh manifest. Then bump the package `version()` and build + test as below.

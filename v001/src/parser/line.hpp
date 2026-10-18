@@ -29,22 +29,28 @@ namespace jtext {
 // ──────────────────────────────────────────────────────────────
 //  formatter
 //
-//  The 3-character declaration that opens every non-structural line.
-//  Shape: <bookend><separator><bookend>
+//  The live marker is two characters: splice, then comment.
+//  A longer run of marker characters is accepted. The reader keeps
+//  the right two and drops what is in front. Those two must differ.
+//  [] is raw data (see raw_data()). Each marker character is printable
+//  ASCII, non-alphanumeric, non-whitespace.
 //
-//  Invariants enforced by validate_formatter():
-//    - bookend == bookend (two outer chars identical)
-//    - bookend != separator
-//    - both are printable ASCII, non-alphanumeric, non-whitespace
+//  stand_in is set equal to the comment character and is unused.
 // ──────────────────────────────────────────────────────────────
 
 struct formatter {
     char bookend   = '\0';
     char separator = '\0';
+    char stand_in  = '\0';
 
     constexpr auto operator==(const formatter&) const -> bool = default;
 
-    // Render as a 3-char string for debug output.
+    // [] is raw data: no splice, no comment. The rest of the line is the value.
+    constexpr auto raw_data() const -> bool {
+        return separator == '[' && bookend == ']';
+    }
+
+    // The two live characters: splice, then comment.
     auto to_string() const -> std::string;
 };
 
@@ -109,9 +115,9 @@ enum class parse_error_kind : std::uint8_t {
     missing_period,                      // number not followed by '.'
     invalid_line_number,                 // 0, > 99, or not a number
     missing_formatter,                   // line ends after the period
-    formatter_too_short,                 // fewer than 3 chars where formatter goes
-    formatter_bookends_mismatch,         // bookend1 != bookend2
-    formatter_separator_equals_bookend,  // bookend == separator
+    formatter_too_short,                 // fewer than 2 chars where the marker goes
+    formatter_bookends_mismatch,         // retained; no longer raised
+    formatter_separator_equals_bookend,  // the right two characters are the same
     formatter_invalid_char,              // non-ASCII, alphanumeric, or whitespace
     hierarchy_empty_segment,             // hierarchy contains an empty segment
     multiline_missing_sentinel,          // "<<<" with no following sentinel
