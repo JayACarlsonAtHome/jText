@@ -4,6 +4,7 @@
 #include <optional>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <unordered_set>
 #include <stdexcept>
 #include <chrono>

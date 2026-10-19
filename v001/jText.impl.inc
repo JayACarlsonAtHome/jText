@@ -185,9 +185,18 @@ auto JTextFile::parse_entry(std::string_view line) -> std::expected<JTextEntry, 
         }
     }
 
-    // case_mode stays on the file for callers. Values are kept as written:
-    // folding them here would rewrite the text a later save stores.
-    (void)case_mode;
+    // Case normalization
+    if (case_mode == CaseMode::Insensitive && !e.is_null && !e.fields.empty()) {
+        for (auto& f : e.fields) {
+            if (f) {
+                std::string& s = *f;
+                std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+            }
+        }
+        if (!e.comment.empty()) {
+            std::transform(e.comment.begin(), e.comment.end(), e.comment.begin(), ::toupper);
+        }
+    }
 
     return e;
 }

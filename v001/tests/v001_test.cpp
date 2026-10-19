@@ -1,6 +1,6 @@
 #include <jText/v001.hpp>
 
-static_assert(jText::v001::version() == "v001.006", "v001 version");
+static_assert(jText::v001::version() == "v001.007", "v001 version");
 
 #include <cstdlib>
 #include <iostream>
