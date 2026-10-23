@@ -8,9 +8,14 @@
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.008"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.009"; }
 
 enum class CaseMode { Insensitive, Sensitive };
+
+// Compare two values under a file's case mode, the way a database collation does:
+// Insensitive ignores ASCII letter case, Sensitive compares exactly. Values themselves are
+// always stored and returned as written; use this for matching, filtering and duplicates.
+[[nodiscard]] bool text_equal(std::string_view a, std::string_view b, CaseMode mode) noexcept;
 
 // jText file profiles (SPEC §2.0):
 //   Light — // wrapper + # metadata + "-- Section --" + "# Fields:" includes.

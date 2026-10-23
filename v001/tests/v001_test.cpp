@@ -1,8 +1,10 @@
 #include <jText/v001.hpp>
 
-static_assert(jText::v001::version() == "v001.008", "v001 version");
+static_assert(jText::v001::version() == "v001.009", "v001 version");
 
 #include <cstdlib>
+#include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -118,6 +120,35 @@ int main() {
         w.finalize();
         CHECK(!w.last_record_id().has_value());
         CHECK(o.str().find("2. #|# \x1F") != std::string::npos);
+    }
+
+    {
+        // Like a database: Insensitive is for comparing; stored values keep their case.
+        using namespace jText::v001;
+        const auto path = std::filesystem::temp_directory_path() / "jtext_case_kept_test.jtext";
+        {
+            std::ofstream fo(path);
+            JTextWriter w(fo);
+            w.set_case_mode(CaseMode::Insensitive);
+            w.write_header();
+            w.begin_section("Tools");
+            w.append_row(1, {std::string("Hammer"), std::string("Mixed Case")});
+            w.finalize();
+        }
+        JTextFile f;
+        CHECK(f.read_full(path.string()).has_value());
+        CHECK(f.case_mode == CaseMode::Insensitive);
+        bool kept = false;
+        for (const auto& sec : f.sections)
+            for (const auto& e : sec.entries)
+                for (const auto& fld : e.fields)
+                    if (fld && *fld == "Hammer") kept = true;
+        CHECK(kept);
+        std::filesystem::remove(path);
+        CHECK(text_equal("Hammer", "HAMMER", CaseMode::Insensitive));
+        CHECK(!text_equal("Hammer", "HAMMER", CaseMode::Sensitive));
+        CHECK(text_equal("Hammer", "Hammer", CaseMode::Sensitive));
+        CHECK(!text_equal("Hammer", "Hammers", CaseMode::Insensitive));
     }
 
     std::cout << "jText::v001 aliases jText API\n";

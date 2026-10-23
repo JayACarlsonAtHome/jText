@@ -183,18 +183,8 @@ auto JTextFile::parse_entry(std::string_view line) -> std::expected<JTextEntry, 
         }
     }
 
-    // Case normalization
-    if (case_mode == CaseMode::Insensitive && !e.is_null && !e.fields.empty()) {
-        for (auto& f : e.fields) {
-            if (f) {
-                std::string& s = *f;
-                std::transform(s.begin(), s.end(), s.begin(), ::toupper);
-            }
-        }
-        if (!e.comment.empty()) {
-            std::transform(e.comment.begin(), e.comment.end(), e.comment.begin(), ::toupper);
-        }
-    }
+    // Values are kept exactly as written, like a database: case_mode is a comparison
+    // setting (see text_equal), never a reason to rewrite the text a later save stores.
 
     return e;
 }
@@ -613,6 +603,17 @@ void write_file_comment_header(std::ostream& os,
     // End-of-text-header marker for consumers (e.g. binary log readers doing
     // safe prefix scan). Binary readers must *not* rely on getline after this.
     // See BinaryEventLogReader for the matching bounded rfind-based skip.
+}
+
+bool text_equal(std::string_view a, std::string_view b, CaseMode mode) noexcept {
+    if (mode == CaseMode::Sensitive) return a == b;
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const auto x = static_cast<unsigned char>(a[i]);
+        const auto y = static_cast<unsigned char>(b[i]);
+        if (std::toupper(x) != std::toupper(y)) return false;
+    }
+    return true;
 }
 
 std::size_t jtext_line_pad_width_for_count(std::size_t item_count) {
