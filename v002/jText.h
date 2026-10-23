@@ -18,8 +18,7 @@
 //
 // The declarations live in jText.api.inc (an include-free fragment). This textual
 // header makes std visible via the includes above, then pastes the fragment inside
-// the namespace; the gcc import-std module includes the SAME fragment under
-// `import std;`. Keep declarations in the fragment.
+// the namespace. Keep declarations in the fragment.
 namespace jText::v002 {
 
 #include "jText.api.inc"

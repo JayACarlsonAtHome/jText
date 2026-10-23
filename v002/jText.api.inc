@@ -1,17 +1,14 @@
 // jText::v002 — PUBLIC API DECLARATIONS (single source of truth).
 //
 // Include-fragment, NOT a standalone header: no include guard, includes nothing
-// itself, and must be included INSIDE the jText::v002 namespace by one of
-// two front-ends that first make std visible:
-//   * jText.h                    — textual std #includes (non-module consumers).
-//   * jText.v002.cppm     — `import std;` (gcc import-std module, opt-in).
-// std names are spelled std:: (incl. std::size_t — `import std;` does not export
-// the global C size_t). Definitions live in jText.impl.inc.
+// itself, and must be included INSIDE the jText::v002 namespace by jText.h, which
+// first makes std visible with textual std #includes.
+// std names are spelled std:: (incl. std::size_t). Definitions live in jText.impl.inc.
 
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.007"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.008"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 

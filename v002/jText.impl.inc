@@ -1,10 +1,8 @@
 // jText::v002 — PUBLIC API DEFINITIONS (single source of truth).
 //
 // Include-fragment (no guard, includes nothing). Included INSIDE the
-// jText::v002 namespace by two front-ends that first make std visible and
-// provide the file-scope `fs` alias + std::literals:
-//   * jText.cpp                  — textual std #includes (compiled into jtext_core).
-//   * jText.v002.impl.cpp — `import std;` (gcc import-std module, opt-in).
+// jText::v002 namespace by jText.cpp (compiled into jtext_core), which first makes std
+// visible with textual std #includes and provides the file-scope `fs` alias + std::literals.
 // std names are spelled std:: (incl. std::size_t). Declarations live in jText.api.inc.
 
 // ===================================================================
