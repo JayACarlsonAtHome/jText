@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.012"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.013"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -125,12 +125,33 @@ public:
     // caller can link child rows (e.g. _Ints/_Floats tables) to it.
     [[nodiscard]] std::optional<std::int64_t> last_record_id() const noexcept { return last_record_id_; }
 
+    // The profile written (SPEC 2.0): Light (the default) or Full. Set it before the header.
+    void set_profile(JTextProfile profile) noexcept { profile_ = profile; }
+
+    // Light: the "#" metadata block. Full: "=== jText File ===" and the numbered header
+    // lines (SPEC 2.3: filename, date, purpose, jtext_version, case_mode, sql_dialect,
+    // table_name, auto_id).
     void write_header();
 
-    // Sections
+    // Sections. Light: "-- Name --" (closed by "-- End Name --"). Full: "=== Section: Name ===";
+    // its intro, Fields and Data blocks follow, and the next section or finalize() closes it.
     void begin_section(std::string_view name);
 
-    // Append a complete entry (supports is_special_block)
+    // Full profile, in a section before its Data block:
+    //   write_include("Schema", path)  ->  === <#include#> Schema: path ===
+    //   write_template(name, body)     ->  === Template: name ===, the body as a [* value
+    //   begin_fields() ... end_fields() ->  === Fields === ... === End Fields ===
+    //   begin_data()                    ->  === Data ===  (an open Fields block is closed first;
+    //                                       a section without one gets an empty one, as the
+    //                                       parser requires a Fields block before the data)
+    // finalize() closes every block still open, so a file never ends unclosed.
+    void write_include(std::string_view kind, std::string_view path);
+    void write_template(std::string_view name, std::string_view body);
+    void begin_fields();
+    void end_fields();
+    void begin_data();
+
+    // Append a complete entry
     void append_entry(const JTextEntry& entry);
 
     // Batch append — recommended for high-volume use (ts_store, double-buffering, etc.)
@@ -211,7 +232,13 @@ private:
     BadRowPolicy bad_row_policy_ = BadRowPolicy::Terminate;
     std::size_t skipped_rows_ = 0;
     std::string section_;   // current section, for error messages
-    bool section_open_ = false;   // a "-- Name --" waits for its "-- End Name --"
+    bool section_open_ = false;   // a section waits for its closer
+    JTextProfile profile_ = JTextProfile::Light;
+    enum class FullBlock { none, fields, data };
+    FullBlock full_block_ = FullBlock::none;   // Full profile: the block open in the section
+    bool fields_written_ = false;              // Full profile: this section has its Fields block
+    void close_full_section();               // Full profile: closes the open block and section
+    void write_full_header_line(std::size_t number, std::string_view value);
 
     // Record id generation (per section)
     std::int64_t record_id_seed_ = 1;

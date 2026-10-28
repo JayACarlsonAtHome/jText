@@ -817,6 +817,9 @@ JTextWriter::JTextWriter(JTextWriter&& other) noexcept
       skipped_rows_(other.skipped_rows_),
       section_(std::move(other.section_)),
       section_open_(other.section_open_),
+      profile_(other.profile_),
+      full_block_(other.full_block_),
+      fields_written_(other.fields_written_),
       source_path_(std::move(other.source_path_))
 {
     other.out_ = nullptr;
@@ -848,6 +851,9 @@ JTextWriter& JTextWriter::operator=(JTextWriter&& other) noexcept
         skipped_rows_ = other.skipped_rows_;
         section_ = std::move(other.section_);
         section_open_ = other.section_open_;
+        profile_ = other.profile_;
+        full_block_ = other.full_block_;
+        fields_written_ = other.fields_written_;
         source_path_ = std::move(other.source_path_);
 
         other.out_ = nullptr;
@@ -923,9 +929,102 @@ void JTextWriter::write_header()
         write_file_comment_header(*out_, source_path_, purp);
     }
 
+    header_written_ = true;
+    if (profile_ == JTextProfile::Full) {
+        *out_ << "=== jText File ===\n";
+        std::string date = date_;
+        if (date.empty()) {
+            date = std::format("{:%Y-%m-%d}", std::chrono::floor<std::chrono::days>(
+                                                  std::chrono::system_clock::now()));
+        }
+        if (!source_path_.empty())
+            write_full_header_line(1, std::filesystem::path(source_path_).filename().string());
+        write_full_header_line(2, date);
+        if (!purpose_.empty()) write_full_header_line(3, purpose_);
+        write_full_header_line(4, "0.8");
+        write_full_header_line(5, case_mode_ == CaseMode::Insensitive ? "Insensitive" : "Sensitive");
+        if (!sql_dialect_.empty()) write_full_header_line(6, sql_dialect_);
+        if (!table_name_.empty()) write_full_header_line(7, table_name_);
+        write_full_header_line(8, auto_id_ ? "true" : "false");
+        out_->put('\n');
+        return;
+    }
     write_header_block(*out_, date_, purpose_, case_mode_,
                        sql_dialect_, table_name_, auto_id_);
-    header_written_ = true;
+}
+
+// One numbered header line: the value with a formatter that cannot clash with it.
+void JTextWriter::write_full_header_line(std::size_t number, std::string_view value)
+{
+    const std::vector<std::string> fields{std::string(value)};
+    const RowFormat fmt = row_format(U'#', 0, fields, false);
+    *out_ << format_row(number, fields, "", 2, fmt.sep, fmt.bookend);
+}
+
+void JTextWriter::close_full_section()
+{
+    if (full_block_ == FullBlock::fields) *out_ << "=== End Fields ===\n";
+    if (full_block_ == FullBlock::data) *out_ << "=== End Data ===\n";
+    full_block_ = FullBlock::none;
+    if (section_open_) *out_ << "=== End Section ===\n\n";
+    section_open_ = false;
+}
+
+void JTextWriter::write_include(std::string_view kind, std::string_view path)
+{
+    ensure_header();
+    ensure_not_finalized();
+    if (!out_) return;
+    *out_ << std::format("=== <#include#> {}: {} ===\n", kind, path);
+}
+
+void JTextWriter::write_template(std::string_view name, std::string_view body)
+{
+    ensure_header();
+    ensure_not_finalized();
+    if (!out_) return;
+    if (!body.empty() && body.back() == '\n') body.remove_suffix(1);
+    *out_ << std::format("=== Template: {} ===\n[*\n", name);
+    for (;;) {
+        const auto nl = body.find('\n');
+        const auto line = body.substr(0, nl);
+        *out_ << "**";
+        if (!line.empty()) *out_ << ' ' << line;
+        out_->put('\n');
+        if (nl == std::string_view::npos) break;
+        body.remove_prefix(nl + 1);
+    }
+    *out_ << "*]\n";
+}
+
+void JTextWriter::begin_fields()
+{
+    ensure_header();
+    ensure_not_finalized();
+    if (!out_) return;
+    *out_ << "=== Fields ===\n";
+    full_block_ = FullBlock::fields;
+    fields_written_ = true;
+}
+
+void JTextWriter::end_fields()
+{
+    if (!out_ || full_block_ != FullBlock::fields) return;
+    *out_ << "=== End Fields ===\n";
+    full_block_ = FullBlock::none;
+}
+
+void JTextWriter::begin_data()
+{
+    ensure_header();
+    ensure_not_finalized();
+    if (!out_) return;
+    end_fields();
+    if (!fields_written_) *out_ << "=== Fields ===\n=== End Fields ===\n";
+    fields_written_ = true;
+    flush_pending_batch();
+    *out_ << "=== Data ===\n";
+    full_block_ = FullBlock::data;
 }
 
 void JTextWriter::begin_section(std::string_view name)
@@ -937,6 +1036,14 @@ void JTextWriter::begin_section(std::string_view name)
     flush_pending_batch();   // never buffer across section boundaries
     line_pad_width_ = 2;
     last_record_id_.reset(); // record ids are per section (per table)
+    if (profile_ == JTextProfile::Full) {
+        close_full_section();
+        section_ = name;
+        section_open_ = true;
+        fields_written_ = false;
+        *out_ << std::format("=== Section: {} ===\n", name);
+        return;
+    }
     if (section_open_) {
         write_section_closer(*out_, section_);
         out_->put('\n');
@@ -1092,7 +1199,14 @@ void JTextWriter::finalize()
 
     flush_pending_batch();
     ensure_header();
-    // Every block closes, like XML: the open section, then the file.
+    // Every block closes, like XML: what is open in the section, the section, then the file.
+    if (profile_ == JTextProfile::Full) {
+        close_full_section();
+        *out_ << "=== End File ===\n";
+        out_->flush();
+        finalized_ = true;
+        return;
+    }
     if (section_open_) {
         write_section_closer(*out_, section_);
         section_open_ = false;

@@ -1,6 +1,6 @@
 #include <jText/v002.hpp>
 
-static_assert(jText::v002::version() == "v002.012", "v002 version");
+static_assert(jText::v002::version() == "v002.013", "v002 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -695,6 +695,73 @@ int main() {
         std::getline(fi, first);
         CHECK(first == "//File:    named.jtext");
         std::filesystem::remove_all(dir);
+    }
+
+    {
+        // The full profile, written by the writer: header lines, sections with includes,
+        // templates, a Fields block and a Data block, every block closed by finalize().
+        using namespace jText::v002;
+        std::ostringstream o;
+        {
+            JTextWriter w(o);
+            w.set_profile(JTextProfile::Full);
+            w.set_purpose("event log # main");
+            w.write_header();
+            w.begin_section("events");
+            w.write_include("Schema", "../includes/main.jschma");
+            w.write_template("SQL Insert", "INSERT INTO events VALUES ({1}, {2});\n");
+            w.begin_fields();
+            w.write_include("Fields", "../includes/main.jtFlds");
+            w.begin_data();
+            JTextEntry e;
+            e.number = 1;
+            e.delimiter = U'\u258C';
+            e.level_sep = U'\u25AE';
+            e.fields = {std::string("1"), std::string("a|b # c")};
+            w.append_entry(e);
+            e.fields = {std::string("2"), std::string("line one\nline two")};
+            w.append_entry(e);
+            w.begin_section("second");
+            w.begin_fields();
+            w.end_fields();
+            w.begin_data();
+            w.append_row(1, {std::string("1"), std::string("x")}, "", U'|');
+            w.finalize();
+        }
+        const std::string text = o.str();
+        CHECK(text.starts_with("=== jText File ===\n"));
+        CHECK(text.ends_with("=== End Data ===\n=== End Section ===\n\n=== End File ===\n"));
+        const auto file = jtext::parse_file_structure(text);
+        CHECK(file.has_value());
+        CHECK(file->sections.size() == 2);
+        const auto& s = file->sections[0];
+        CHECK(s.name == "events" && s.includes.size() == 2 && s.includes[0].first == "Schema");
+        CHECK(s.templates.size() == 1 && s.templates[0].body == "INSERT INTO events VALUES ({1}, {2});");
+        std::size_t rows = 0;
+        for (const auto& pl : s.data_lines) if (pl.number != 0) ++rows;
+        CHECK(rows == 3);   // the multiline record is two lines: fields 1 and 2
+        CHECK(s.data_lines.front().hierarchy == (std::vector<std::string>{"1", "a|b # c"}));
+        bool purpose = false, version = false;
+        for (const auto& hl : file->header_lines) {
+            if (hl.number == 3 && hl.hierarchy == std::vector<std::string>{"event log # main"}) purpose = true;
+            if (hl.number == 4 && hl.hierarchy == std::vector<std::string>{"0.8"}) version = true;
+        }
+        CHECK(purpose && version);
+
+        // JTextFile reads it, and a writer dropped without finalize() still closes it.
+        const auto path = std::filesystem::temp_directory_path() / "jtext_full_profile_test.jtext";
+        {
+            JTextWriter w(path.string());
+            w.set_profile(JTextProfile::Full);
+            w.write_header();
+            w.begin_section("only");
+            w.begin_data();
+            w.append_row(1, {std::string("7"), std::string("z")}, "", U'|');
+        }
+        JTextFile f;
+        CHECK(f.read_full(path.string()).has_value());
+        CHECK(f.sections.size() == 1 && f.sections[0].entries.size() == 1);
+        std::filesystem::remove(path);
     }
 
     {
