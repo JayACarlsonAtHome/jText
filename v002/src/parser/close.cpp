@@ -49,16 +49,33 @@ public:
         for (std::size_t i = 0; i < in_.size(); ++i) {
             line_no_ = i + 1;
             const std::string& line = in_[i];
-            if (sentinel_) {
-                if (trim(line) == *sentinel_) sentinel_.reset();
-                lines_.push_back(line);
+            if (legacy_) {
+                legacy_line(line);
                 continue;
             }
+            if (in_value_) {
+                const auto vl = parse_value_line(line);
+                if (!vl || vl->kind == value_line_kind::content) {
+                    lines_.push_back(line);
+                    continue;
+                }
+                in_value_ = false;
+                if (vl->kind == value_line_kind::closer) {
+                    lines_.push_back(line);
+                    continue;
+                }
+                add(value_indent_ + "*]");   // the value ended without its closer
+            }
+            // The first non-blank line after a template banner is the template's opener.
+            template_opener_ = after_template_ && !trim(line).empty();
+            if (!trim(line).empty()) after_template_ = false;
+            if (legacy_opener(line)) continue;
             if (light) light_line(line);
             else full_line(line);
         }
         line_no_ = 0;
-        if (sentinel_) add(*sentinel_);
+        if (legacy_) { add(legacy_indent_ + "*]"); legacy_.reset(); }
+        if (in_value_) { add(value_indent_ + "*]"); in_value_ = false; }
         if (light) {
             close_light_section();
             if (file_open_) add("-- EOF --");
@@ -102,15 +119,63 @@ private:
         auto at = lines_.size();
         while (at > 0 && trim(lines_[at - 1]).empty()) --at;
         lines_.insert(lines_.begin() + static_cast<std::ptrdiff_t>(at), closer);
-        added_.push_back(line_no_ ? std::format("line {}: added '{}'", line_no_, closer)
-                                  : std::format("end of file: added '{}'", closer));
+        added_.push_back(line_no_ ? std::format("line {}: added '{}'", line_no_, trim(closer))
+                                  : std::format("end of file: added '{}'", trim(closer)));
     }
 
-    // A numbered line that opens a multiline block ("1. <<< SENTINEL").
+    // A line that opens a multiline value: "6. [* # comment", or a template's bare "[*".
+    // Its lines are indented to the column of the "[*".
     void note_multiline(std::string_view line)
     {
-        if (const auto pl = parse_line(line); pl && pl->kind == line_kind::multiline_opener)
-            sentinel_ = pl->sentinel;
+        const auto pl = parse_line(line);
+        const bool opens = (pl && pl->kind == line_kind::multiline_opener) ||
+                           parse_bare_value_opener(line).has_value();
+        if (!opens) return;
+        in_value_ = true;
+        value_indent_ = std::string(line.find("[*"), ' ');
+    }
+
+    // A v0.7 "<<< SENTINEL" block ("6. <<< END  # note", or a template's bare
+    // "<<< END"): rewritten as a [* value, line for line.
+    auto legacy_opener(const std::string& line) -> bool
+    {
+        std::string_view t = line;
+        std::size_t at = 0;
+        while (at < t.size() && (t[at] == ' ' || t[at] == '\t')) ++at;
+        std::size_t digits = at;
+        while (digits < t.size() && t[digits] >= '0' && t[digits] <= '9') ++digits;
+        if (digits > at) {
+            if (digits >= t.size() || t[digits] != '.') return false;
+            at = digits + 1;
+            while (at < t.size() && (t[at] == ' ' || t[at] == '\t')) ++at;
+        }
+        if (t.substr(at, 3) != "<<<") return false;
+        auto rest = trim(t.substr(at + 3));
+        const auto end = rest.find_first_of(" \t");
+        const auto sentinel = rest.substr(0, end);
+        if (sentinel.empty()) return false;
+        auto comment = end == std::string_view::npos ? std::string_view{} : trim(rest.substr(end));
+        if (comment.starts_with('#')) comment = trim(comment.substr(1));
+
+        // A template's opener is a bare "[*" (no line number).
+        if (template_opener_) at = 0;
+        std::string opener = std::string{t.substr(0, at)} + "[*";
+        if (!comment.empty()) opener += std::format(" # {}", comment);
+        lines_.push_back(opener);
+        legacy_ = std::string{sentinel};
+        legacy_indent_ = std::string(at, ' ');
+        added_.push_back(std::format("line {}: rewrote the '<<< {}' block as a '[*' value", line_no_, sentinel));
+        return true;
+    }
+
+    void legacy_line(const std::string& line)
+    {
+        if (trim(line) == *legacy_) {
+            lines_.push_back(legacy_indent_ + "*]");
+            legacy_.reset();
+            return;
+        }
+        lines_.push_back(legacy_indent_ + (line.empty() ? std::string{"**"} : "** " + line));
     }
 
     void close_block()
@@ -131,6 +196,7 @@ private:
         const auto m = full_marker(line);
         if (m == "jText File") file_open_ = true;
         else if (m.starts_with("Section:")) { close_block(); close_section(); section_open_ = true; }
+        else if (m.starts_with("Template:")) after_template_ = true;
         else if (m == "Fields") block_ = block::fields;
         else if (m == "End Fields" || m == "End Data") block_ = block::none;
         else if (m == "Data") { if (block_ == block::fields) add("=== End Fields ==="); block_ = block::data; }
@@ -176,7 +242,12 @@ private:
     bool section_open_ = false;
     block block_ = block::none;
     std::optional<std::string> light_section_;
-    std::optional<std::string> sentinel_;
+    bool in_value_ = false;
+    bool after_template_ = false;    // a template banner was the last non-blank line
+    bool template_opener_ = false;   // this line follows a template banner
+    std::string value_indent_;
+    std::optional<std::string> legacy_;   // the sentinel of a "<<<" block being rewritten
+    std::string legacy_indent_;
 };
 
 }  // anonymous namespace

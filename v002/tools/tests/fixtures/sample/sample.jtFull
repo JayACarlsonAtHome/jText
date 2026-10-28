@@ -12,9 +12,9 @@
 === Section: Sample ===
 
 === Template: SQL Insert ===
- 1. <<< !!!INS!!!
-INSERT INTO sample (id, name, category) VALUES ({1}, {2}, {3});
-!!!INS!!!
+[*
+** INSERT INTO sample (id, name, category) VALUES ({1}, {2}, {3});
+*]
 
 === Fields ===
  1. #/# id/Number/Not Null                         # primary key

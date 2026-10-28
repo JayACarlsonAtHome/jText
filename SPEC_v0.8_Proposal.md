@@ -11,8 +11,8 @@
 |---|---|---|
 | A | Unicode formatter characters; standard formatter `▮▌` | implemented |
 | B | Every block closes, like XML | implemented, plus `jtext_close` |
-| C | Multiline values: `[*` … `**` … `*]` | design only |
-| D | Removed: banner-less rows, special blocks, `<<<` sentinel blocks | banner-less rows removed; the rest with Part C |
+| C | Multiline values: `[*` … `**` … `*]` | implemented |
+| D | Removed: banner-less rows, special blocks, `<<<` sentinel blocks | implemented; `jtext_close` rewrites `<<<` blocks |
 | E | Writers emit the two-character formatter | implemented |
 
 ---
@@ -247,9 +247,9 @@ the data. Writers also pad line numbers to two columns in every section (Section
    `=== Data ===`, and rows with no section at all. Data rows live inside a Data block
    (full profile) or a `-- Name --` section (light profile). *(Removed.)*
 2. **Special blocks** (`*** ^^^ ###`). Not in the SPEC; one sample file uses one.
-   Replaced by Part C. *(With Part C.)*
-3. **`<<< SENTINEL` blocks** (Section 5). Replaced by Part C; `jtext_close`, or a
-   converter, rewrites existing ones. *(With Part C.)*
+   Replaced by Part C. *(Removed; the sample was converted by hand.)*
+3. **`<<< SENTINEL` blocks** (Section 5). Replaced by Part C; `jtext_close` rewrites
+   existing ones, line for line (a template's opener becomes a bare `[*`). *(Removed.)*
 
 ---
 
@@ -273,11 +273,10 @@ Every v0.7 file without the removed forms (Part D) reads under v0.8 once it is
 closed: `jtext_close` adds the closers v0.7 left optional. v0.7 readers cannot read
 files that use non-ASCII formatters or `[*` values.
 
-The library's two readers now share one line grammar (`src/parser`), so they agree
-on every line. Before, `JTextFile::read_full` read `1. ▮▌ 1▮a|b # c ▌ x` silently
-as one value while `parse_line` rejected it. `JTextFile`'s file-level structure is
-still read separately and does not yet enforce closers; Part D.2 removes the one
-feature that keeps it separate.
+The library has one parser. `JTextFile::read_full` and `read_section` read through
+`parse_file_structure`, the same parser the validator and tools use, so every reader
+agrees on every line and enforces closers. Before, `JTextFile::read_full` read
+`1. ▮▌ 1▮a|b # c ▌ x` silently as one value while `parse_line` rejected it.
 
 ## Open questions
 
@@ -287,6 +286,3 @@ feature that keeps it separate.
    allows one, so files stay readable by v0.7 tools, and `▮▌` only when needed?
 3. **Version enforcement.** Should a v0.8 reader warn when a file uses a non-ASCII
    formatter but declares a `jtext_version` below 0.8?
-4. **Templates without a line number.** Section 5.1 allows a template's opener
-   without one; the parser requires it (`workshop_tools.standard.jtFull`). Part C,
-   rule 4 settles it for `[*`.

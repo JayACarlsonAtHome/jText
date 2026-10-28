@@ -1,6 +1,6 @@
 #include <jText/v002.hpp>
 
-static_assert(jText::v002::version() == "v002.010", "v002 version");
+static_assert(jText::v002::version() == "v002.011", "v002 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -527,11 +527,108 @@ int main() {
         CHECK(old_light.last_line_unterminated && old_light.added.size() == 3);
         CHECK(kind(old_light.text) == "ok");
 
-        // Cut off inside a multiline value: its sentinel comes first.
+        // Cut off inside a multiline value: its "*]" comes first, aligned with its lines.
         const auto ml = jtext::add_missing_closers(
-            "# JText File - created x\n-- A --\n1. <<< END\nline one\n");
-        CHECK(ml.added.size() == 3 && ml.added[0].find("'END'") != std::string::npos);
+            "# JText File - created x\n-- A --\n 1. [* # note\n    ** line one\n");
+        CHECK(ml.added.size() == 3 && ml.added[0].find("'*]'") != std::string::npos);
+        CHECK(ml.text.find("    ** line one\n    *]\n-- End A --\n-- EOF --\n") != std::string::npos);
         CHECK(kind(ml.text) == "ok");
+
+        // A v0.7 "<<< SENTINEL" block is rewritten as a [* value, line for line: in a
+        // data row it keeps its number; a template's opener is a bare "[*".
+        const auto old_ml = jtext::add_missing_closers(
+            "# JText File - created x\n-- A --\n 2. <<< END  # note\nline one\n\n  indented\nEND\n"
+            "-- End A --\n-- EOF --\n");
+        CHECK(old_ml.text.find(" 2. [* # note\n    ** line one\n    **\n    **   indented\n    *]\n")
+              != std::string::npos);
+        CHECK(kind(old_ml.text) == "ok");
+        const auto old_tpl = jtext::add_missing_closers(
+            "=== jText File ===\n 1. ?# t\n\n=== Section: s ===\n=== Template: T ===\n"
+            " 1. <<< !!!T!!!\nINSERT {1};\n!!!T!!!\n=== Fields ===\n 1. /# id/Identity(1,1)\n"
+            "=== End Fields ===\n=== Data ===\n1. |# 1\n=== End Data ===\n=== End Section ===\n"
+            "=== End File ===\n");
+        CHECK(old_tpl.text.find("=== Template: T ===\n[*\n** INSERT {1};\n*]\n") != std::string::npos);
+        CHECK(kind(old_tpl.text) == "ok");
+    }
+
+    {
+        // Multiline values (SPEC v0.8 Part C): "[*" opens, "** " lines, a bare "*]".
+        using VK = jtext::value_line_kind;
+        auto vl = [](std::string_view line) { return jtext::parse_value_line(line); };
+        CHECK(vl("    ** text")->kind == VK::content && vl("    ** text")->text == "text");
+        CHECK(vl("**   indented")->text == "  indented");     // one space is the marker's
+        CHECK(vl("**")->kind == VK::content && vl("**")->text.empty());
+        CHECK(vl("** ")->text.empty());
+        CHECK(vl("** trailing  ")->text == "trailing  ");     // verbatim
+        CHECK(vl("\t*]")->kind == VK::closer && vl("*]  ")->kind == VK::closer);
+        CHECK(vl(" 7. |# x")->kind == VK::other);
+        CHECK(!vl("**x").has_value() && !vl("*] more").has_value());
+
+        auto kind = [](std::string_view text) {
+            const auto r = jtext::parse_file_structure(text);
+            return r ? std::string("ok") : std::string(jtext::to_string(r.error().kind));
+        };
+        const std::string head =
+            "=== jText File ===\n 1. ?# ml\n\n=== Section: s ===\n=== Template: Insert ===\n"
+            "[* # one statement\n** INSERT INTO t VALUES ({1}, {2});\n*]\n"
+            "=== Fields ===\n 1. /# id/Identity(1,1)\n 2. /# trace/String\n=== End Fields ===\n"
+            "=== Data ===\n 1. |# 42\n 2. [* # from worker 3\n    ** Traceback:\n    **\n"
+            "    **   File \"main.py\" | # 12\n";
+        const std::string tail = "=== End Data ===\n=== End Section ===\n=== End File ===\n";
+        const auto file = jtext::parse_file_structure(head + "    *]\n" + tail);
+        CHECK(file.has_value());
+        CHECK(file->sections[0].templates[0].body == "INSERT INTO t VALUES ({1}, {2});");
+        CHECK(file->sections[0].templates[0].opener_comment == "one statement");
+        const auto& value = file->sections[0].data_lines.back();
+        CHECK(value.kind == jtext::line_kind::multiline_opener && value.comment == "from worker 3");
+        CHECK(value.hierarchy == (std::vector<std::string>{"Traceback:\n\n  File \"main.py\" | # 12"}));
+        CHECK(kind(head) == "missing_closer");                      // end of file
+        CHECK(kind(head + tail) == "missing_closer");               // a marker
+        CHECK(kind(head + "\n    *]\n" + tail) == "missing_closer"); // a blank line is not "**"
+
+        // The writer: a field with a newline becomes an aligned [* value, the row
+        // breaking around it; its '|' and '#' are not separators or comments there.
+        using namespace jText::v002;
+        for (const std::size_t batch : {std::size_t{0}, std::size_t{10}}) {
+            const auto path = std::filesystem::temp_directory_path() / "jtext_multiline_test.jtext";
+            {
+                std::ofstream fo(path);
+                JTextWriter w(fo);
+                w.set_auto_batch_size(batch);
+                w.write_header();
+                w.begin_section("Trace");
+                w.append_row(1, {std::string("1"), std::string("line one | # x\n  indented\n\nlast"),
+                                 std::string("tail")}, "note", '|');
+                w.finalize();
+            }
+            std::ifstream fi(path);
+            const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
+            CHECK(text.find(" 1. |# 1 # note\n"
+                            " 2. [*\n"
+                            "    ** line one | # x\n"
+                            "    **   indented\n"
+                            "    **\n"
+                            "    ** last\n"
+                            "    *]\n"
+                            " 3. |# tail\n") != std::string::npos);
+            JTextFile f;
+            CHECK(f.read_full(path.string()).has_value());
+            const auto& rows = f.sections.at(0).entries;
+            CHECK(rows.size() == 3);
+            CHECK(rows[0].comment == "note" && rows[1].number == 2);
+            CHECK(rows[1].fields.size() == 1 && *rows[1].fields[0] == "line one | # x\n  indented\n\nlast");
+            CHECK(rows[2].number == 3 && *rows[2].fields[0] == "tail");
+
+            // Written back by JTextFile, the file is the same.
+            const auto again = std::filesystem::temp_directory_path() / "jtext_multiline_again.jtext";
+            CHECK(f.write(again.string()).has_value());
+            std::ifstream fa(again);
+            const std::string text2((std::istreambuf_iterator<char>(fa)), std::istreambuf_iterator<char>());
+            CHECK(text2.find(" 2. [*\n    ** line one | # x\n    **   indented\n    **\n    ** last\n    *]\n")
+                  != std::string::npos);
+            std::filesystem::remove(path);
+            std::filesystem::remove(again);
+        }
     }
 
     {

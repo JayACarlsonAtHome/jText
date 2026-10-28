@@ -47,9 +47,8 @@ namespace jtext {
 
 struct parsed_template {
     std::string  name;            // from "=== Template: <name> ==="
-    std::string  sentinel;        // chosen sentinel for the body
-    std::string  body;            // verbatim text between sentinels
-    std::string  opener_comment;  // optional comment on the opener line
+    std::string  body;            // the value's lines, joined with '\n'
+    std::string  opener_comment;  // optional comment on the "[*" line
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -75,7 +74,7 @@ struct parsed_template {
 
 struct multiline_body {
     std::size_t  data_line_index = 0;  // index into parsed_section::data_lines
-    std::string  body;                 // verbatim text between sentinels
+    std::string  body;                 // the value's lines, joined with '\n' (also the opener's hierarchy[0])
 };
 
 struct parsed_section {
@@ -99,6 +98,9 @@ struct parsed_section {
 
 struct parsed_file {
     std::vector<parsed_line>     header_lines;
+    // Light profile: the "#" metadata lines before the first section, without
+    // their "#" ("JText File - created ...", "Purpose - ...", "Case: ...").
+    std::vector<std::string>     metadata;
     std::vector<parsed_section>  sections;
 };
 

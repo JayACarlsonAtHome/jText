@@ -22,9 +22,10 @@ struct closed_file {
 };
 
 // Inserts "=== End Fields ===" before a Data block, a section's closer before the
-// next section, and everything still open at the end of the file (a multiline
-// sentinel, then the data or fields block, the section, the file). Changes
-// nothing else. A file already closed comes back unchanged with nothing added.
+// next section, a multiline value's "*]" where it ends, and everything still open at
+// the end of the file (the value, then the data or fields block, the section, the
+// file). Rewrites a v0.7 "<<< SENTINEL" block as a "[*" value, line for line.
+// Changes nothing else. A file already closed comes back unchanged.
 auto add_missing_closers(std::string_view text) -> closed_file;
 
 }  // namespace jtext

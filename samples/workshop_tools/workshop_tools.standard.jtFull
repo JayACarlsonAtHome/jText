@@ -15,57 +15,57 @@
 === Section: Workshop Tools ===
 
 === Template: Create Table ===
-<<< !!!CT!!!
-CREATE TABLE IF NOT EXISTS workshop_tools (
-    id          INTEGER PRIMARY KEY,
-    name        VARCHAR(80)  NOT NULL,
-    category    VARCHAR(100) NOT NULL,
-    acquired    DATE,
-    condition   VARCHAR(30)  NOT NULL,
-    location    VARCHAR(50),
-    notes       TEXT
-);
-!!!CT!!!
+[*
+** CREATE TABLE IF NOT EXISTS workshop_tools (
+**     id          INTEGER PRIMARY KEY,
+**     name        VARCHAR(80)  NOT NULL,
+**     category    VARCHAR(100) NOT NULL,
+**     acquired    DATE,
+**     condition   VARCHAR(30)  NOT NULL,
+**     location    VARCHAR(50),
+**     notes       TEXT
+** );
+*]
 
 === Template: SQL Insert ===
-<<< !!!INS!!!
-INSERT INTO workshop_tools (
-    id,
-    name,
-    category,
-    acquired,
-    condition,
-    location,
-    notes
-) VALUES (
-    {1},
-    {2},
-    {3},
-    {4},
-    {5},
-    {6},
-    {7}
-);
-!!!INS!!!
+[*
+** INSERT INTO workshop_tools (
+**     id,
+**     name,
+**     category,
+**     acquired,
+**     condition,
+**     location,
+**     notes
+** ) VALUES (
+**     {1},
+**     {2},
+**     {3},
+**     {4},
+**     {5},
+**     {6},
+**     {7}
+** );
+*]
 
 === Template: SQL Insert - no id ===
-<<< !!!INS2!!!
-INSERT INTO workshop_tools (
-    name,
-    category,
-    acquired,
-    condition,
-    location,
-    notes
-) VALUES (
-    {2},
-    {3},
-    {4},
-    {5},
-    {6},
-    {7}
-);
-!!!INS2!!!
+[*
+** INSERT INTO workshop_tools (
+**     name,
+**     category,
+**     acquired,
+**     condition,
+**     location,
+**     notes
+** ) VALUES (
+**     {2},
+**     {3},
+**     {4},
+**     {5},
+**     {6},
+**     {7}
+** );
+*]
 
 === Fields ===
  1. #/# id/Number/Not Null                  # primary key, record id

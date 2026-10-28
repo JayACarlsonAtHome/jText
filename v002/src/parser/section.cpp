@@ -7,7 +7,7 @@
 //   - structural markers ("=== ... ===")
 //   - blank lines
 //   - regular numbered lines (forwarded to parse_line)
-//   - multiline-opener lines (consume until matching sentinel)
+//   - multiline values ("[*" opener, "**" lines, "*]" closer)
 
 #include "parser/section.hpp"
 #include "parser/line.hpp"
@@ -227,34 +227,32 @@ auto file_error::to_string() const -> std::string
 
 namespace {
 
-// Consume a multiline block starting at lines[start] which must
-// be a parsed multiline_opener. Walk forward looking for a line
-// whose entire content matches the sentinel. Capture everything
-// between (exclusive) as the body. Returns the index AFTER the
-// closer line on success.
-auto consume_multiline_body(
-    const std::vector<std::string>& lines,
-    std::size_t                     start,
-    std::string_view                sentinel)
+// Read a multiline value's lines from `start` (just past its "[*" opener) through
+// its "*]" closer. Returns the value, its lines joined with '\n', and the index of the
+// line after the closer. A line that is not "**" or "*]" means the value was never
+// closed: a missing closer, as at the end of the file.
+auto consume_value(const std::vector<std::string>& lines, std::size_t start)
     -> std::expected<std::pair<std::string, std::size_t>, file_error>
 {
-    std::string body;
+    std::string value;
     bool first = true;
-
     for (std::size_t i = start; i < lines.size(); ++i) {
-        const auto stripped = strip_eol(lines[i]);
-        if (stripped == sentinel) {
-            // Closer found. Body excludes the closer line itself.
-            return std::pair{std::move(body), i + 1};
+        auto vl = parse_value_line(lines[i]);
+        if (!vl) {
+            return err(file_error_kind::line_parse_failed, i + 1,
+                       std::format("line parse failed: {}", vl.error().to_string()));
         }
-        if (!first) body.push_back('\n');
-        body.append(std::string{stripped});
+        if (vl->kind == value_line_kind::closer) return std::pair{std::move(value), i + 1};
+        if (vl->kind == value_line_kind::other) {
+            return err(file_error_kind::missing_closer, i + 1,
+                       "multiline value is not closed: expected '*]'");
+        }
+        if (!first) value.push_back('\n');
+        value += vl->text;
         first = false;
     }
-
-    return err(file_error_kind::multiline_unterminated, start,
-               std::format("multiline block opened but sentinel '{}' "
-                           "never found", sentinel));
+    return err(file_error_kind::missing_closer, lines.size() + 1,
+               "multiline value is not closed: expected '*]' before the end of the file");
 }
 
 // Parse a single data line, returning the parsed_line. On line-parse
@@ -392,26 +390,20 @@ auto build_one_section(
                         return err(file_error_kind::template_missing_body, line_no,
                                    std::format("template '{}' missing body", tname));
                     }
-                    auto opener_or_err = parse_one_line(lines[cursor], cursor + 1);
-                    if (!opener_or_err) return std::unexpected{opener_or_err.error()};
-                    const auto& opener = *opener_or_err;
-                    if (opener.kind != line_kind::multiline_opener) {
+                    // A template's body is a multiline value with a bare "[*" opener.
+                    auto opener_comment = parse_bare_value_opener(lines[cursor]);
+                    if (!opener_comment) {
                         return err(file_error_kind::template_missing_body, cursor + 1,
-                                   std::format("template '{}' expected multiline "
-                                               "opener, got data line", tname));
+                                   std::format("template '{}' expected '[*' to open its "
+                                               "body: {}", tname, opener_comment.error().to_string()));
                     }
                     ++cursor;  // advance past opener
-                    auto body_or_err = consume_multiline_body(lines, cursor, opener.sentinel);
-                    if (!body_or_err) {
-                        auto e = body_or_err.error();
-                        e.line_no = cursor;
-                        return std::unexpected{std::move(e)};
-                    }
+                    auto body_or_err = consume_value(lines, cursor);
+                    if (!body_or_err) return std::unexpected{body_or_err.error()};
                     parsed_template tpl;
                     tpl.name           = std::move(tname);
-                    tpl.sentinel       = opener.sentinel;
                     tpl.body           = std::move(body_or_err->first);
-                    tpl.opener_comment = opener.comment;
+                    tpl.opener_comment = std::move(*opener_comment);
                     sec.templates.push_back(std::move(tpl));
                     cursor = body_or_err->second;  // past the closer line
                     continue;
@@ -512,12 +504,9 @@ auto build_one_section(
                     const auto idx = sec.data_lines.size();
                     sec.data_lines.push_back(pl);
                     ++cursor;
-                    auto body_or_err = consume_multiline_body(lines, cursor, pl.sentinel);
-                    if (!body_or_err) {
-                        auto e = body_or_err.error();
-                        e.line_no = line_no;
-                        return std::unexpected{std::move(e)};
-                    }
+                    auto body_or_err = consume_value(lines, cursor);
+                    if (!body_or_err) return std::unexpected{body_or_err.error()};
+                    sec.data_lines[idx].hierarchy = {body_or_err->first};   // the field's value
                     sec.data_multiline_bodies.push_back(
                         multiline_body{idx, std::move(body_or_err->first)});
                     cursor = body_or_err->second;
@@ -623,12 +612,9 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
         sec.data_lines.push_back(pl);
         ++cursor;
         if (pl.kind == line_kind::multiline_opener) {
-            auto body_or_err = consume_multiline_body(lines, cursor, pl.sentinel);
-            if (!body_or_err) {
-                auto e = body_or_err.error();
-                e.line_no = line_no;
-                return std::unexpected{std::move(e)};
-            }
+            auto body_or_err = consume_value(lines, cursor);
+            if (!body_or_err) return std::unexpected{body_or_err.error()};
+            sec.data_lines.back().hierarchy = {body_or_err->first};   // the field's value
             sec.data_multiline_bodies.push_back(
                 multiline_body{sec.data_lines.size() - 1, std::move(body_or_err->first)});
             cursor = body_or_err->second;
@@ -644,16 +630,22 @@ auto build_light_file(const std::vector<std::string>& lines, std::size_t cursor)
     -> std::expected<parsed_file, file_error>
 {
     parsed_file out;
-    ++cursor;   // the magic line; the # metadata after it is read by JTextFile
+    bool in_header = true;   // the "#" metadata block, before the first section
 
     while (cursor < lines.size()) {
         const auto stripped = strip_eol(lines[cursor]);
         const auto line_no = cursor + 1;
         const auto t = trim(stripped);
+        if (in_header && t.starts_with('#')) {
+            out.metadata.emplace_back(trim(t.substr(1)));
+            ++cursor;
+            continue;
+        }
         if (is_blank(stripped) || t.starts_with('#') || t.starts_with("//")) {
             ++cursor;
             continue;
         }
+        in_header = false;
         const auto banner = light_banner(stripped);
         if (banner == "EOF") {
             // The file is closed: only blank lines and comments may follow.

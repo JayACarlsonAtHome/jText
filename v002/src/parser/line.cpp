@@ -8,7 +8,7 @@
 //   2. Read digits → line number (1..99)
 //   3. Require period
 //   4. Skip whitespace
-//   5. Detect multiline opener "<<<" — short-circuit if seen
+//   5. (formerly "<<<"; a multiline value now opens with the formatter [*)
 //   6. Otherwise: read 3 chars → formatter, validate
 //   7. Skip whitespace
 //   8. Scan rest of line for the comment marker (bookend + whitespace
@@ -168,7 +168,66 @@ auto split_fields(std::string_view data, std::string_view sep) -> std::vector<st
     return values;
 }
 
+// After "[*" and its whitespace: nothing, or a comment introduced by '#'.
+auto opener_comment(std::string_view rest, std::size_t col)
+    -> std::expected<std::string, parse_error>
+{
+    if (rest.empty()) return std::string{};
+    if (rest.front() != '#') {
+        return err(parse_error_kind::multiline_opener_text, col,
+                   "after '[*' only a comment, introduced by '#', may follow");
+    }
+    return std::string{trim(rest.substr(1))};
+}
+
 }  // anonymous namespace
+
+// ──────────────────────────────────────────────────────────────
+//  Multiline values
+// ──────────────────────────────────────────────────────────────
+
+auto parse_value_line(std::string_view raw) -> std::expected<value_line, parse_error>
+{
+    auto sv = strip_eol(raw);
+    const auto col = skip_ws(sv);
+    value_line out;
+    if (sv.starts_with("**")) {
+        const auto rest = sv.substr(2);
+        if (!rest.empty() && rest.front() != ' ') {
+            return err(parse_error_kind::value_line_invalid, col + 2,
+                       "'**' must be followed by a space before the value's text");
+        }
+        out.kind = value_line_kind::content;
+        if (!rest.empty()) out.text = std::string{rest.substr(1)};
+        return out;
+    }
+    if (sv.starts_with("*]")) {
+        if (!trim(sv.substr(2)).empty()) {
+            return err(parse_error_kind::value_line_invalid, col + 2,
+                       "nothing may follow '*]': it closes the value on a line of its own");
+        }
+        out.kind = value_line_kind::closer;
+        return out;
+    }
+    return out;
+}
+
+auto parse_bare_value_opener(std::string_view raw) -> std::expected<std::string, parse_error>
+{
+    auto sv = strip_eol(raw);
+    auto col = skip_ws(sv);
+    if (!sv.starts_with("[*")) {
+        return err(parse_error_kind::missing_formatter, col, "expected '[*'");
+    }
+    sv.remove_prefix(2);
+    col += 2;
+    if (!sv.empty() && !is_ws(sv.front())) {
+        return err(parse_error_kind::multiline_opener_text, col,
+                   "after '[*' only a comment, introduced by '#', may follow");
+    }
+    col += skip_ws(sv);
+    return opener_comment(sv, col);
+}
 
 // ──────────────────────────────────────────────────────────────
 //  formatter::to_string
@@ -200,6 +259,9 @@ auto to_string(parse_error_kind k) -> std::string_view
         case parse_error_kind::hierarchy_empty_segment:            return "hierarchy_empty_segment";
         case parse_error_kind::multiline_missing_sentinel:         return "multiline_missing_sentinel";
         case parse_error_kind::invalid_utf8:                       return "invalid_utf8";
+        case parse_error_kind::formatter_reserved:                 return "formatter_reserved";
+        case parse_error_kind::multiline_opener_text:              return "multiline_opener_text";
+        case parse_error_kind::value_line_invalid:                 return "value_line_invalid";
         case parse_error_kind::multiline_sentinel_invalid:         return "multiline_sentinel_invalid";
     }
     return "unknown";
@@ -245,6 +307,11 @@ auto validate_formatter(std::string_view marker)
                    std::format("formatter must be at least 2 characters, got {}", count));
     }
     // Keep the right two characters. A longer opener drops what is in front.
+    if (prev == U'[' && last != U']' && last != U'*') {
+        return err(parse_error_kind::formatter_reserved, prev_at,
+                   "'[' as the splicing character is reserved: only [] (raw data) "
+                   "and [* (a multiline value)");
+    }
     if (prev == last) {
         return err(parse_error_kind::formatter_separator_equals_bookend, prev_at,
                    std::format("formatter separator '{}' matches the comment "
@@ -321,61 +388,6 @@ auto parse_line(std::string_view raw, split_rule rule)
                    "line ends before formatter");
     }
 
-    // 5. Detect multiline opener.
-    if (sv.starts_with("<<<")) {
-        sv.remove_prefix(3);
-        col += 3;
-        col += skip_ws(sv);
-
-        if (sv.empty()) {
-            return err(parse_error_kind::multiline_missing_sentinel, col,
-                       "expected sentinel after '<<<'");
-        }
-
-        // Sentinel is everything up to the next whitespace.
-        // Anything after the sentinel + whitespace is treated as
-        // an optional inline comment for the opener line.
-        const auto sentinel_start = sv.data();
-        while (!sv.empty() && !is_ws(sv.front())) {
-            sv.remove_prefix(1);
-        }
-        const auto sentinel_len =
-            static_cast<std::size_t>(sv.data() - sentinel_start);
-
-        const std::string_view sentinel{sentinel_start, sentinel_len};
-        if (sentinel.size() < 3) {
-            return err(parse_error_kind::multiline_sentinel_invalid,
-                       col,
-                       std::format("multiline sentinel must be at least 3 "
-                                   "characters, got '{}'", sentinel));
-        }
-        // SPEC v0.6 Section 5.2: the sentinel must be printable ASCII. It already
-        // cannot contain whitespace (it was read up to the next whitespace), so
-        // here we reject control characters and non-ASCII bytes — preventing a
-        // stray binary/control byte from passing as a valid sentinel.
-        for (const char sc : sentinel) {
-            const auto u = static_cast<unsigned char>(sc);
-            if (u < 0x21 || u > 0x7e) {
-                return err(parse_error_kind::multiline_sentinel_invalid,
-                           col,
-                           "multiline sentinel must be printable ASCII "
-                           "(no control or non-ASCII characters)");
-            }
-        }
-
-        // Optional trailing text after whitespace = treated as a comment.
-        col += sentinel_len;
-        col += skip_ws(sv);
-        const auto comment_text = trim(sv);
-
-        parsed_line out;
-        out.kind     = line_kind::multiline_opener;
-        out.number   = number;
-        out.sentinel = std::string{sentinel};
-        out.comment  = std::string{comment_text};
-        return out;
-    }
-
     // 6. Marker run. Keep the right two characters: splice, then comment.
     std::size_t marker_len = 0;
     std::size_t marker_chars = 0;
@@ -408,6 +420,18 @@ auto parse_line(std::string_view raw, split_rule rule)
     // (empty data with no comment), that's the "explicitly empty"
     // case from SPEC 2.6.1 — still valid.
     col += skip_ws(sv);
+
+    // [* opens a multiline value: an optional comment, and its lines follow.
+    if (fmt.multiline()) {
+        auto comment = opener_comment(sv, col);
+        if (!comment) return std::unexpected{std::move(comment.error())};
+        parsed_line out;
+        out.kind    = line_kind::multiline_opener;
+        out.number  = number;
+        out.fmt     = fmt;
+        out.comment = std::move(*comment);
+        return out;
+    }
 
     // [] means the rest of the line is one value. No splice, no comment.
     if (fmt.raw_data()) {

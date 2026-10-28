@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.010"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.011"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -39,7 +39,6 @@ struct JTextEntry {
     std::vector<std::optional<std::string>> fields;  // nullopt = null value; for compact ts_store, null is encoded as \x1F when writing
     std::string comment;
     bool is_null = false;  // legacy per-entry
-    bool is_special_block = false;
 };
 
 struct JTextSection {
@@ -72,10 +71,10 @@ private:
     static void log_error(std::string_view msg, const std::source_location loc = std::source_location::current());
 
     auto parse_header(std::string_view line) -> bool;
-    auto parse_entry(std::string_view line) -> std::expected<JTextEntry, std::string>;
-    auto parse_special_block(std::ifstream& in, JTextSection& sec) -> std::expected<void, std::string>;
 
-    auto parse_stream(std::ifstream& in, bool full_read, std::string_view target_section = {})
+    // Reads the file with the same parser the validator and tools use, adding its
+    // sections (only `only_section` when given) to `sections`.
+    auto read_file(std::string_view filepath, std::string_view only_section)
         -> std::expected<void, std::string>;
 };
 
@@ -180,6 +179,8 @@ private:
     void ensure_header();
     void ensure_not_finalized();
     void flush_pending_batch();   // internal helper
+    // Write already-formatted lines (a multiline record), batched like any row.
+    void write_lines(std::string text);
     // Report a bad row, then leave it out (Skip) or end the process (Terminate).
     void reject_row(std::size_t field, char32_t sep, std::string_view value);
     // Field-1 entry with no id: fill one in `scratch` and return it; otherwise
@@ -205,7 +206,7 @@ private:
     std::size_t auto_batch_size_ = 0;
     std::vector<std::string> pending_batch_;   // stores pre-formatted lines for cheaper storage & faster flush
 
-    std::size_t line_pad_width_ = 0;
+    std::size_t line_pad_width_ = 2;   // line numbers right-aligned in two columns (SPEC 3.7)
 
     BadRowPolicy bad_row_policy_ = BadRowPolicy::Terminate;
     std::size_t skipped_rows_ = 0;

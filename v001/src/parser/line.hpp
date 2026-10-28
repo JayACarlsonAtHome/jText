@@ -11,6 +11,7 @@
 //   - parsed_line       successful parse result
 //   - parse_error       parse failure details
 //   - line_kind         what kind of line this is (data, multiline_opener)
+//   - parse_value_line  a line inside a multiline value ("**", "*]")
 //   - parse_line(sv)    main entry point
 //
 // The parser is a pure function: no I/O, no global state. The same input
@@ -53,6 +54,11 @@ struct formatter {
         return separator == U'[' && bookend == U']';
     }
 
+    // [* opens a multiline value (SPEC v0.8 Part C): "** " lines, then "*]".
+    constexpr auto multiline() const -> bool {
+        return separator == U'[' && bookend == U'*';
+    }
+
     // The two live characters: splice, then comment.
     auto to_string() const -> std::string;
 };
@@ -67,7 +73,7 @@ struct formatter {
 
 enum class line_kind : std::uint8_t {
     data,               // a regular numbered data line
-    multiline_opener,   // "<num>. <<< <sentinel>" — body handled separately
+    multiline_opener,   // "<num>. [* # comment" — the value's "**" lines follow
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -87,9 +93,10 @@ enum class line_kind : std::uint8_t {
 //
 //  kind == multiline_opener:
 //    - number: 1..99
-//    - sentinel: the chosen sentinel string (after "<<<")
-//    - comment: optional trailing comment on the opener line
-//    - fmt and hierarchy are unused (default-constructed)
+//    - fmt: [*
+//    - comment: the opener's optional comment (after '#')
+//    - hierarchy: empty from parse_line; the file parser fills in the one
+//      value its "**" lines make
 // ──────────────────────────────────────────────────────────────
 
 struct parsed_line {
@@ -98,7 +105,6 @@ struct parsed_line {
     formatter                 fmt;
     std::vector<std::string>  hierarchy;
     std::string               comment;
-    std::string               sentinel;   // for kind == multiline_opener
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -123,9 +129,12 @@ enum class parse_error_kind : std::uint8_t {
     formatter_separator_equals_bookend,  // the right two characters are the same
     formatter_invalid_char,              // non-ASCII, alphanumeric, or whitespace
     hierarchy_empty_segment,             // hierarchy contains an empty segment
-    multiline_missing_sentinel,          // "<<<" with no following sentinel
-    multiline_sentinel_invalid,          // sentinel too short / has whitespace
+    multiline_missing_sentinel,          // retained; no longer raised ("<<<" is gone)
+    multiline_sentinel_invalid,          // retained; no longer raised
     invalid_utf8,                        // the formatter's bytes are not UTF-8
+    formatter_reserved,                  // '[' splice other than [] and [*
+    multiline_opener_text,               // text after "[*" that is not a "#" comment
+    value_line_invalid,                  // "**" without a space, or text after "*]"
 };
 
 // Render a parse_error_kind as a stable, human-readable string.
@@ -173,6 +182,34 @@ enum class split_rule : std::uint8_t { hierarchy, fields };
 
 auto parse_line(std::string_view line, split_rule rule = split_rule::hierarchy)
     -> std::expected<parsed_line, parse_error>;
+
+//  Multiline values (SPEC v0.8 Part C)
+//
+//     6. [* # stack trace          the opener (parse_line: multiline_opener)
+//        ** Traceback ...          a line of the value
+//        **                        an empty line of the value
+//        *]                        the closer, alone
+//
+//  One space after "**" belongs to the marker; the rest of the line is the
+//  value's line, verbatim. Leading spaces and tabs before "**" and "*]" are
+//  alignment and are ignored.
+
+enum class value_line_kind : std::uint8_t {
+    content,   // "** text" or "**"
+    closer,    // "*]"
+    other,     // anything else: not part of a value
+};
+
+struct value_line {
+    value_line_kind kind = value_line_kind::other;
+    std::string     text;   // for content: the value's line
+};
+
+auto parse_value_line(std::string_view line) -> std::expected<value_line, parse_error>;
+
+// A template's opener: a bare "[*" (no line number), with an optional "# comment".
+// Returns the comment.
+auto parse_bare_value_opener(std::string_view line) -> std::expected<std::string, parse_error>;
 
 // ──────────────────────────────────────────────────────────────
 //  validate_formatter
