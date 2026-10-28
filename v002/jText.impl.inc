@@ -78,108 +78,29 @@ auto JTextFile::parse_header(std::string_view line) -> bool {
 // ===================================================================
 
 auto JTextFile::parse_entry(std::string_view line) -> std::expected<JTextEntry, std::string> {
-    if (line.size() < 4) {
-        return std::unexpected{"Line too short for entry"};
-    }
-
-    // Parse entry number (supports 1..N, not only single-digit)
-    std::size_t num = 0;
-    auto [ptr, ec] = std::from_chars(line.data(), line.data() + line.size(), num);
-    if (ec != std::errc{} || ptr >= line.data() + line.size() || *ptr != '.') {
-        return std::unexpected{"Invalid entry number"};
-    }
-    if (ptr + 1 >= line.data() + line.size() || ptr[1] != ' ') {
-        return std::unexpected{"Missing space after 'N.'"};
-    }
-
-    std::string_view rest(ptr + 2); // after ". "
+    // The same line grammar the validator and tools use (src/parser), so every reader
+    // agrees on every line. These are data rows: the splice character splits values.
+    auto parsed = jtext::parse_line(line, jtext::split_rule::fields);
+    if (!parsed) return std::unexpected{parsed.error().to_string()};
+    if (parsed->kind == jtext::line_kind::multiline_opener)
+        return std::unexpected{"multiline values are not supported by JTextFile"};
 
     JTextEntry e;
-    e.number = num;
-    e.delimiter = '#';
+    e.number = parsed->number;
+    e.delimiter = parsed->fmt.bookend;
+    e.level_sep = parsed->fmt.raw_data() ? 0 : parsed->fmt.separator;
+    e.comment = std::move(parsed->comment);
 
-    // Marker run. The live marker is the right two characters:
-    // splice, then comment. A longer opener drops what is in front.
-    auto marker_char = [](char c) {
-        const auto u = static_cast<unsigned char>(c);
-        if (u < 0x21 || u > 0x7E) return false;
-        if ((u >= '0' && u <= '9') || (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z'))
-            return false;
-        return true;
-    };
-    std::size_t opener_end = 0;
-    while (opener_end < rest.size() && marker_char(rest[opener_end]))
-        ++opener_end;
-    char comment_mark = '#';
-    char level_sep = '|';
-    if (opener_end >= 2 && rest[opener_end - 2] != rest[opener_end - 1]) {
-        comment_mark = rest[opener_end - 1];
-        level_sep = rest[opener_end - 2];
-        e.delimiter = comment_mark;
-    } else {
-        opener_end = 0;
-    }
-    if (opener_end > 0) {
-        e.level_sep = level_sep;
-        const bool raw = (level_sep == '[' && comment_mark == ']');
-
-        std::string_view content = rest.substr(opener_end);
-        while (!content.empty() && (content.front() == ' ' || content.front() == '\t')) {
-            content.remove_prefix(1);
-        }
-
-        if (raw) {
-            e.level_sep = 0;
-            e.fields.emplace_back(std::string{content});
-            e.comment.clear();
-            return e;
-        }
-
-        std::string data_part;
-        std::string comment_part;
-        const std::string comment_needle = std::string{' '} + comment_mark + ' ';
-        if (auto comment_sep = content.rfind(comment_needle); comment_sep != std::string_view::npos) {
-            data_part = trim(content.substr(0, comment_sep));
-            comment_part = trim(content.substr(comment_sep + comment_needle.size()));
-        } else {
-            data_part = trim(content);
-        }
-
-        if (data_part == "NULL" || data_part == "null" || data_part == "Null") {
-            e.is_null = true;
-            e.fields.emplace_back("NULL");
-        } else if (!data_part.empty()) {
-            if (level_sep != 0) {
-                std::stringstream ss(std::string{data_part});
-                std::string token;
-                while (std::getline(ss, token, level_sep)) {
-                    e.fields.emplace_back(trim(token));
-                }
-            } else {
-                e.fields.emplace_back(std::string{data_part});
-            }
-        }
-        e.comment = comment_part;
-    }
-    // === Clean Field List format: "1. # Name # comment" ===
-    else if (rest.starts_with("# ")) {
-        std::string_view content = rest.substr(2);
-        std::size_t last_hash = content.rfind('#');
-        if (last_hash != std::string_view::npos) {
-            e.fields.emplace_back(trim(content.substr(0, last_hash)));
-            e.comment = trim(content.substr(last_hash + 1));
-        } else {
-            e.fields.emplace_back(trim(content));
-        }
-    }
-    // Generic fallback
-    else {
-        std::size_t last_hash = rest.rfind('#');
-        if (last_hash != std::string_view::npos) {
-            e.fields.emplace_back(trim(rest.substr(0, last_hash)));
-            e.comment = trim(rest.substr(last_hash + 1));
-        } else {
-            e.fields.emplace_back(trim(rest));
+    auto& values = parsed->hierarchy;
+    if (values.size() == 1 && (values[0] == "NULL" || values[0] == "null" || values[0] == "Null")
+        && !parsed->fmt.raw_data()) {
+        e.is_null = true;
+        e.fields.emplace_back("NULL");
+    } else if (!(values.size() == 1 && values[0].empty())) {
+        for (auto& v : values) {
+            // U+001F is the null marker of a compact row (SPEC 2.6.3); the writer emits it.
+            if (v == "\x1F") e.fields.emplace_back(std::nullopt);
+            else e.fields.emplace_back(std::move(v));
         }
     }
 
@@ -344,6 +265,16 @@ auto JTextFile::parse_stream(std::ifstream& in, bool full_read, std::string_view
             continue;
         }
 
+        // The light-profile file closer, before the banner test below would take it
+        // for a section named "EOF".
+        if (line == "-- EOF --") break;
+
+        // A light-profile section closer ("-- End Name --") ends the section.
+        if (line.starts_with("-- End ") && line.ends_with(" --")) {
+            active = nullptr;
+            continue;
+        }
+
         // Legacy section header
         if (line == "Field List" || line == "Data Section" ||
             (line.starts_with("-- ") && line.ends_with(" --"))) {
@@ -359,8 +290,6 @@ auto JTextFile::parse_stream(std::ifstream& in, bool full_read, std::string_view
             }
             continue;
             }
-
-        if (line == "-- EOF --") break;
 
         // Special block
         if (line.ends_with("*** ^^^ ###")) {
@@ -690,7 +619,145 @@ void write_header_block(std::ostream& out,
     out << "\n";
 }
 
-void write_entry_to_stream(std::ostream& out, const JTextEntry& e, std::size_t pad_width)
+// Bookends the writer may choose, most readable first. All are punctuation the
+// SPEC allows in a formatter (printable ASCII, not alphanumeric, not whitespace);
+// '[' and ']' are left out because "[]" is the raw-data marker.
+static constexpr std::string_view kBookendChoices = "#^%~!@$&*+=:;?\"'(),./<>\\_`{}|-";
+
+// True when the parser would open a comment inside `field`: the bookend with a
+// space on each side, or a trailing " b" on the last field when a comment follows.
+static bool field_has_comment_marker(std::string_view field, char b, bool last_before_comment)
+{
+    for (std::size_t i = 1; i < field.size(); ++i) {
+        if (field[i] != b || field[i - 1] != ' ') continue;
+        if (i + 1 < field.size() ? field[i + 1] == ' ' : last_before_comment) return true;
+    }
+    return false;
+}
+
+static std::string_view field_text(const std::optional<std::string>& f)
+{
+    return f ? std::string_view(*f) : std::string_view();
+}
+
+static std::string_view field_text(const std::string& f) { return f; }
+
+// A row left on the default '#' bookend whose data contains '#' gets a bookend
+// that is not in its data, so "C # sharp" reads back as written and "C#" does not
+// warn (SPEC 3.2). A bookend the caller set is kept as given. `has_hash` comes from
+// scan_row, so a row without '#' costs nothing more here.
+template <class Fields>
+static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& fields, bool has_comment, bool has_hash)
+{
+    if (requested != 0 && requested != U'#') return requested;
+    if (!has_hash && sep != U'#') return U'#';
+    const auto appears = [&](char b) {
+        for (const auto& f : fields)
+            if (field_text(f).find(b) != std::string_view::npos) return true;
+        return false;
+    };
+    for (const char b : kBookendChoices)
+        if (b != sep && !appears(b)) return b;
+    // Every choice is somewhere in the data: take the first the parser cannot
+    // mistake for a comment marker.
+    for (const char b : kBookendChoices) {
+        if (b == sep) continue;
+        bool clash = false;
+        for (std::size_t i = 0; i < fields.size() && !clash; ++i)
+            clash = field_has_comment_marker(field_text(fields[i]), b, has_comment && i + 1 == fields.size());
+        if (!clash) return b;
+    }
+    return '#';
+}
+
+// What one pass over a row's data finds. sep_field is the 1-based number of the first
+// field holding the row's separator, or 0: such a field reads back as two fields and
+// the reader cannot tell where the split was, so the caller must give that row a
+// separator that is not in its data.
+struct RowScan {
+    std::size_t sep_field = 0;
+    bool has_hash = false;
+};
+
+// One pass over a row's data: is '#' anywhere, and which field (1-based) first holds
+// `sep`. A plain byte loop: it measured faster than an eight-byte (SWAR) scan here,
+// and the compiler vectorizes it for long fields. This runs for every row written.
+template <class Fields>
+static RowScan scan_row(const Fields& fields, char32_t sep)
+{
+    RowScan scan;
+    if (sep < 0x80) {
+        const auto byte = static_cast<char>(sep);
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            unsigned char hash = 0, found = 0;
+            for (const char c : field_text(fields[i])) {
+                hash |= static_cast<unsigned char>(c == '#');
+                found |= static_cast<unsigned char>(c == byte);
+            }
+            scan.has_hash |= hash != 0;
+            if (found && scan.sep_field == 0) scan.sep_field = i + 1;
+        }
+        return scan;
+    }
+    // A separator outside ASCII is a byte sequence (e.g. E2 96 AE for U+25AE).
+    const std::string needle = jtext::encode_utf8(sep);
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        const std::string_view text = field_text(fields[i]);
+        unsigned char hash = 0;
+        for (const char c : text) hash |= static_cast<unsigned char>(c == '#');
+        scan.has_hash |= hash != 0;
+        if (scan.sep_field == 0 && text.find(needle) != std::string_view::npos) scan.sep_field = i + 1;
+    }
+    return scan;
+}
+
+// A row the caller gave no separator (level_sep 0) is written with '-', or, when its
+// data holds '-', with the first choice that is not in its data. 0 when every choice is.
+template <class Fields>
+static char32_t choose_splice(char32_t requested_bookend, const Fields& fields)
+{
+    for (const char b : kBookendChoices) {
+        if (b == '#' || b == '-' || b == requested_bookend) continue;
+        bool in_data = false;
+        for (const auto& f : fields)
+            if (field_text(f).find(b) != std::string_view::npos) { in_data = true; break; }
+        if (!in_data) return b;
+    }
+    return 0;
+}
+
+// How one row is written: its separator and bookend, or the field that makes it a bad
+// row (the caller's separator is in that field's data).
+struct RowFormat {
+    char32_t sep = U'-';
+    char32_t bookend = U'#';
+    std::size_t bad_field = 0;
+};
+
+template <class Fields>
+static RowFormat row_format(char32_t requested_bookend, char32_t level_sep, const Fields& fields, bool has_comment)
+{
+    const RowScan scan = scan_row(fields, level_sep != 0 ? level_sep : U'-');
+    RowFormat f;
+    f.sep = level_sep != 0 ? level_sep : U'-';
+    if (scan.sep_field) {
+        if (level_sep != 0) {
+            f.bad_field = scan.sep_field;
+            return f;
+        }
+        f.sep = choose_splice(requested_bookend, fields);
+        if (f.sep == 0) {
+            f.sep = U'-';
+            f.bad_field = scan.sep_field;
+            return f;
+        }
+    }
+    f.bookend = choose_bookend(requested_bookend, f.sep, fields, has_comment, scan.has_hash);
+    return f;
+}
+
+void write_entry_to_stream(std::ostream& out, const JTextEntry& e, std::size_t pad_width,
+                           char32_t sep_cp, char32_t bookend_cp)
 {
     if (e.is_special_block) {
         out << "*** ^^^ ###\n";
@@ -702,11 +769,15 @@ void write_entry_to_stream(std::ostream& out, const JTextEntry& e, std::size_t p
 
     write_jtext_line_number(out, e.number, pad_width);
 
-    char sep = (e.level_sep == 0) ? '-' : e.level_sep;
-    out << "#" << sep << "# ";
+    // The two-character formatter <splice><comment> (SPEC 3.1), e.g. |# or |^. The
+    // comment character can differ per row so values may contain " # "; the comment
+    // marker is that character with a space on each side.
+    const std::string sep = jtext::encode_utf8(sep_cp);
+    const std::string bookend = jtext::encode_utf8(bookend_cp);
+    out << sep << bookend << ' ';
 
     for (std::size_t i = 0; i < e.fields.size(); ++i) {
-        if (i > 0) out << e.level_sep;
+        if (i > 0) out << sep;
         const auto& f = e.fields[i];
         if (!f.has_value()) {
             out << '\x1F';  // official null marker for compact (chosen ASCII US)
@@ -716,13 +787,13 @@ void write_entry_to_stream(std::ostream& out, const JTextEntry& e, std::size_t p
     }
 
     if (!e.comment.empty()) {
-        out << " # " << e.comment;
+        out << ' ' << bookend << ' ' << e.comment;
     }
     out << '\n';
 }
 
 // Helper for auto-batching: format once into a string (cheaper to store than full JTextEntry)
-static std::string format_entry(const JTextEntry& e, std::size_t pad_width)
+static std::string format_entry(const JTextEntry& e, std::size_t pad_width, char32_t sep_cp, char32_t bookend_cp)
 {
     if (e.is_special_block) {
         std::string s;
@@ -743,13 +814,14 @@ static std::string format_entry(const JTextEntry& e, std::size_t pad_width)
         s += os.str();
     }
 
-    char sep = (e.level_sep == 0) ? '-' : e.level_sep;
-    s += '#';
-    s += sep;
-    s += "# ";
+    const std::string sep = jtext::encode_utf8(sep_cp);
+    const std::string bookend = jtext::encode_utf8(bookend_cp);
+    s += sep;        // <splice><comment> (SPEC 3.1)
+    s += bookend;
+    s += ' ';
 
     for (std::size_t i = 0; i < e.fields.size(); ++i) {
-        if (i > 0) s += e.level_sep;
+        if (i > 0) s += sep;
         const auto& f = e.fields[i];
         if (!f.has_value()) {
             s += '\x1F';
@@ -759,7 +831,9 @@ static std::string format_entry(const JTextEntry& e, std::size_t pad_width)
     }
 
     if (!e.comment.empty()) {
-        s += " # ";
+        s += ' ';
+        s += bookend;
+        s += ' ';
         s += e.comment;
     }
     s += '\n';
@@ -770,8 +844,9 @@ static std::string format_entry(const JTextEntry& e, std::size_t pad_width)
 static std::string format_row(std::size_t number,
                               const std::vector<std::string>& fields,
                               std::string_view comment,
-                              char level_sep,
-                              std::size_t pad_width)
+                              std::size_t pad_width,
+                              char32_t sep_cp,
+                              char32_t bookend_cp)
 {
     std::string s;
     s.reserve(256);
@@ -782,31 +857,36 @@ static std::string format_row(std::size_t number,
         s += os.str();
     }
 
-    char sep = (level_sep == 0) ? '-' : level_sep;
-    s += '#';
-    s += sep;
-    s += "# ";
+    const std::string sep = jtext::encode_utf8(sep_cp);
+    const std::string bookend = jtext::encode_utf8(bookend_cp);
+    s += sep;        // <splice><comment> (SPEC 3.1)
+    s += bookend;
+    s += ' ';
 
     for (std::size_t i = 0; i < fields.size(); ++i) {
-        if (i > 0) s += level_sep;
+        if (i > 0) s += sep;
         s += fields[i];
     }
 
     if (!comment.empty()) {
-        s += " # ";
+        s += ' ';
+        s += bookend;
+        s += ' ';
         s += comment;
     }
     s += '\n';
     return s;
 }
 
+// Light profile: a section opens with "-- Name --" and closes with "-- End Name --".
 void write_section_header(std::ostream& out, std::string_view name)
 {
-    if (name == "Field List" || name == "Data Section") {
-        out << name << '\n';
-    } else {
-        out << std::format("-- {} --\n", name);
-    }
+    out << std::format("-- {} --\n", name);
+}
+
+void write_section_closer(std::ostream& out, std::string_view name)
+{
+    out << std::format("-- End {} --\n", name);
 }
 
 } // anonymous namespace
@@ -859,6 +939,10 @@ JTextWriter::JTextWriter(JTextWriter&& other) noexcept
       record_id_seed_(other.record_id_seed_),
       record_id_step_(other.record_id_step_),
       last_record_id_(other.last_record_id_),
+      bad_row_policy_(other.bad_row_policy_),
+      skipped_rows_(other.skipped_rows_),
+      section_(std::move(other.section_)),
+      section_open_(other.section_open_),
       source_path_(std::move(other.source_path_))
 {
     other.out_ = nullptr;
@@ -886,6 +970,10 @@ JTextWriter& JTextWriter::operator=(JTextWriter&& other) noexcept
         record_id_seed_ = other.record_id_seed_;
         record_id_step_ = other.record_id_step_;
         last_record_id_ = other.last_record_id_;
+        bad_row_policy_ = other.bad_row_policy_;
+        skipped_rows_ = other.skipped_rows_;
+        section_ = std::move(other.section_);
+        section_open_ = other.section_open_;
         source_path_ = std::move(other.source_path_);
 
         other.out_ = nullptr;
@@ -975,6 +1063,12 @@ void JTextWriter::begin_section(std::string_view name)
     flush_pending_batch();   // never buffer across section boundaries
     line_pad_width_ = 0;
     last_record_id_.reset(); // record ids are per section (per table)
+    if (section_open_) {
+        write_section_closer(*out_, section_);
+        out_->put('\n');
+    }
+    section_ = name;
+    section_open_ = true;
     write_section_header(*out_, name);
     out_->put('\n');
 }
@@ -984,17 +1078,22 @@ void JTextWriter::append_entry(const JTextEntry& entry)
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
+    const RowFormat fmt = row_format(entry.delimiter, entry.level_sep, entry.fields, !entry.comment.empty());
+    if (fmt.bad_field) {
+        reject_row(fmt.bad_field, fmt.sep, field_text(entry.fields[fmt.bad_field - 1]));
+        return;
+    }
 
     JTextEntry scratch;
     const JTextEntry& e = resolve_record_id(entry, scratch);
 
     if (auto_batch_size_ > 0) {
-        pending_batch_.push_back(format_entry(e, line_pad_width_));
+        pending_batch_.push_back(format_entry(e, line_pad_width_, fmt.sep, fmt.bookend));
         if (pending_batch_.size() >= auto_batch_size_) {
             flush_pending_batch();
         }
     } else {
-        write_entry_to_stream(*out_, e, line_pad_width_);
+        write_entry_to_stream(*out_, e, line_pad_width_, fmt.sep, fmt.bookend);
     }
 }
 
@@ -1003,19 +1102,38 @@ void JTextWriter::append_entries(std::span<const JTextEntry> entries)
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
+    // Scan the whole batch first. Under Terminate the process ends before any of it is
+    // written; under Skip each bad row is reported and left out below.
+    std::vector<RowFormat> formats;
+    formats.reserve(entries.size());
+    for (const auto& entry : entries) {
+        formats.push_back(row_format(entry.delimiter, entry.level_sep, entry.fields, !entry.comment.empty()));
+        const auto& f = formats.back();
+        if (f.bad_field && bad_row_policy_ == BadRowPolicy::Terminate)
+            reject_row(f.bad_field, f.sep, field_text(entry.fields[f.bad_field - 1]));
+    }
+    const auto keep = [&](std::size_t n) {
+        const auto& f = formats[n];
+        if (!f.bad_field) return true;
+        reject_row(f.bad_field, f.sep, field_text(entries[n].fields[f.bad_field - 1]));
+        return false;
+    };
 
     JTextEntry scratch;
     if (auto_batch_size_ > 0) {
-        for (const auto& entry : entries) {
-            const JTextEntry& e = resolve_record_id(entry, scratch);
-            pending_batch_.push_back(format_entry(e, line_pad_width_));
+        for (std::size_t n = 0; n < entries.size(); ++n) {
+            if (!keep(n)) continue;
+            const JTextEntry& e = resolve_record_id(entries[n], scratch);
+            pending_batch_.push_back(format_entry(e, line_pad_width_, formats[n].sep, formats[n].bookend));
             if (pending_batch_.size() >= auto_batch_size_) {
                 flush_pending_batch();
             }
         }
     } else {
-        for (const auto& entry : entries) {
-            write_entry_to_stream(*out_, resolve_record_id(entry, scratch), line_pad_width_);
+        for (std::size_t n = 0; n < entries.size(); ++n) {
+            if (!keep(n)) continue;
+            write_entry_to_stream(*out_, resolve_record_id(entries[n], scratch), line_pad_width_,
+                                  formats[n].sep, formats[n].bookend);
         }
     }
 }
@@ -1028,11 +1146,16 @@ void JTextWriter::append_entries(const std::vector<JTextEntry>& entries)
 void JTextWriter::append_row(std::size_t number,
                              const std::vector<std::string>& fields,
                              std::string_view comment,
-                             char level_sep)
+                             char32_t level_sep)
 {
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
+    const RowFormat fmt = row_format(U'#', level_sep, fields, !comment.empty());
+    if (fmt.bad_field) {
+        reject_row(fmt.bad_field, fmt.sep, fields[fmt.bad_field - 1]);
+        return;
+    }
 
     // Field-1 row: generate the record id when it is missing, else note it.
     if (number == 1 && (fields.empty() || fields[0].empty())) {
@@ -1046,7 +1169,7 @@ void JTextWriter::append_row(std::size_t number,
 
     if (auto_batch_size_ > 0) {
         // Fast path: format directly into the pending batch without ever creating a JTextEntry
-        pending_batch_.push_back(format_row(number, fields, comment, level_sep, line_pad_width_));
+        pending_batch_.push_back(format_row(number, fields, comment, line_pad_width_, fmt.sep, fmt.bookend));
         if (pending_batch_.size() >= auto_batch_size_) {
             flush_pending_batch();
         }
@@ -1056,7 +1179,7 @@ void JTextWriter::append_row(std::size_t number,
         for (const auto& f : fields) e.fields.emplace_back(f);
         e.comment = std::string(comment);
         e.level_sep = level_sep;
-        write_entry_to_stream(*out_, e, line_pad_width_);
+        write_entry_to_stream(*out_, e, line_pad_width_, fmt.sep, fmt.bookend);
     }
 }
 
@@ -1066,6 +1189,11 @@ void JTextWriter::finalize()
 
     flush_pending_batch();
     ensure_header();
+    // Every block closes, like XML: the open section, then the file.
+    if (section_open_) {
+        write_section_closer(*out_, section_);
+        section_open_ = false;
+    }
     *out_ << "-- EOF --\n";
     out_->flush();
     finalized_ = true;
@@ -1109,6 +1237,30 @@ void JTextWriter::ensure_header()
     if (!header_written_) {
         write_header();
     }
+}
+
+void JTextWriter::reject_row(std::size_t field, char32_t sep, std::string_view value)
+{
+    constexpr std::size_t kShown = 80;
+    const std::string shown = value.size() > kShown
+        ? std::string(value.substr(0, kShown)) + "..." : std::string(value);
+    const bool skip = bad_row_policy_ == BadRowPolicy::Skip;
+    std::println(stderr, "jText {}: cannot write a row: field {} contains the separator '{}'",
+                 skip ? "WARNING" : "ERROR", field, jtext::encode_utf8(sep));
+    std::println(stderr, "  file:    {}", source_path_.empty() ? "(stream)" : source_path_);
+    std::println(stderr, "  section: {}", section_.empty() ? "(none)" : section_);
+    std::println(stderr, "  value:   \"{}\"", shown);
+    std::println(stderr, "  fix:     give this row a separator that is not in its data (level_sep)");
+    if (skip) {
+        ++skipped_rows_;
+        std::println(stderr, "  policy:  Skip - row left out ({} skipped so far)", skipped_rows_);
+        return;
+    }
+    std::println(stderr, "  policy:  Terminate - rows before this one are written; ending the process");
+    std::fflush(stderr);
+    flush_pending_batch();
+    if (out_) out_->flush();
+    std::terminate();
 }
 
 void JTextWriter::ensure_not_finalized()

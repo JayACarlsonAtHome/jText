@@ -18,6 +18,7 @@ if(NOT TARGET jtext_core)
         jText.cpp
         src/parser/line.cpp
         src/parser/section.cpp
+        src/parser/close.cpp
         src/validator/validator.cpp
     )
     target_include_directories(jtext_core PUBLIC

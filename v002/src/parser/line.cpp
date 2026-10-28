@@ -96,21 +96,12 @@ auto err(parse_error_kind k, std::size_t col, std::string msg)
 //  and its trailing whitespace. The bookend is `b`.
 // ──────────────────────────────────────────────────────────────
 
-auto find_comment_marker(std::string_view data_region, char b) -> std::size_t
+auto find_comment_marker(std::string_view data_region, std::string_view b) -> std::size_t
 {
-    for (std::size_t i = 0; i < data_region.size(); ++i) {
-        if (data_region[i] != b) continue;
-
-        // A comment is this character with a space on each side.
-        const bool left_ok = (i > 0) && data_region[i - 1] == ' ';
-        if (!left_ok) continue;
-        const bool right_ok =
-            (i + 1 < data_region.size()) && data_region[i + 1] == ' ';
-        if (!right_ok) continue;
-
-        return i;
-    }
-    return std::string_view::npos;
+    // A comment is this character with a space on each side.
+    const std::string needle = std::string{' '} + std::string{b} + ' ';
+    const auto at = data_region.find(needle);
+    return at == std::string_view::npos ? at : at + 1;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -129,7 +120,7 @@ auto find_comment_marker(std::string_view data_region, char b) -> std::size_t
 //  starts, used for error reporting.
 // ──────────────────────────────────────────────────────────────
 
-auto split_hierarchy(std::string_view data, char sep, std::size_t col_base)
+auto split_hierarchy(std::string_view data, std::string_view sep, std::size_t col_base)
     -> std::expected<std::vector<std::string>, parse_error>
 {
     // No separator in data → flat single value.
@@ -140,33 +131,41 @@ auto split_hierarchy(std::string_view data, char sep, std::size_t col_base)
     // Has separator → parse as hierarchy. Strip ONE leading and ONE
     // trailing separator (cosmetic), then split the remainder.
     auto core = data;
-    if (!core.empty() && core.front() == sep) core.remove_prefix(1);
-    if (!core.empty() && core.back()  == sep) core.remove_suffix(1);
+    std::size_t offset = 0;
+    if (core.starts_with(sep)) { core.remove_prefix(sep.size()); offset = sep.size(); }
+    if (core.ends_with(sep))   core.remove_suffix(sep.size());
 
     std::vector<std::string> segments;
     std::size_t start = 0;
-    for (std::size_t cursor = 0; cursor < core.size(); ++cursor) {
-        if (core[cursor] == sep) {
-            const auto piece = trim(core.substr(start, cursor - start));
-            if (piece.empty()) {
-                return err(parse_error_kind::hierarchy_empty_segment,
-                           col_base + start,
-                           "hierarchy contains an empty segment");
-            }
-            segments.emplace_back(piece);
-            start = cursor + 1;
+    for (;;) {
+        const auto at = core.find(sep, start);
+        const auto piece = trim(core.substr(start, at == std::string_view::npos ? std::string_view::npos : at - start));
+        if (piece.empty()) {
+            return err(parse_error_kind::hierarchy_empty_segment,
+                       col_base + offset + start,
+                       "hierarchy contains an empty segment");
         }
+        segments.emplace_back(piece);
+        if (at == std::string_view::npos) break;
+        start = at + sep.size();
     }
-    // Final segment (the part after the last separator, or the whole
-    // core if no separators remain after stripping leading/trailing).
-    const auto piece = trim(core.substr(start));
-    if (piece.empty()) {
-        return err(parse_error_kind::hierarchy_empty_segment,
-                   col_base + start,
-                   "hierarchy contains an empty segment");
-    }
-    segments.emplace_back(piece);
     return segments;
+}
+
+// Split a compact row's values on `sep`. Every separator splits and an
+// empty value is kept, so "a||b|" is ["a", "", "b", ""]: what the writer
+// joined comes back as it was. Values are trimmed (SPEC 3.4).
+auto split_fields(std::string_view data, std::string_view sep) -> std::vector<std::string>
+{
+    std::vector<std::string> values;
+    std::size_t start = 0;
+    for (;;) {
+        const auto at = data.find(sep, start);
+        values.emplace_back(trim(data.substr(start, at == std::string_view::npos ? std::string_view::npos : at - start)));
+        if (at == std::string_view::npos) break;
+        start = at + sep.size();
+    }
+    return values;
 }
 
 }  // anonymous namespace
@@ -177,7 +176,7 @@ auto split_hierarchy(std::string_view data, char sep, std::size_t col_base)
 
 auto formatter::to_string() const -> std::string
 {
-    return std::string{separator, bookend};
+    return encode_utf8(separator) + encode_utf8(bookend);
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -200,6 +199,7 @@ auto to_string(parse_error_kind k) -> std::string_view
         case parse_error_kind::formatter_invalid_char:             return "formatter_invalid_char";
         case parse_error_kind::hierarchy_empty_segment:            return "hierarchy_empty_segment";
         case parse_error_kind::multiline_missing_sentinel:         return "multiline_missing_sentinel";
+        case parse_error_kind::invalid_utf8:                       return "invalid_utf8";
         case parse_error_kind::multiline_sentinel_invalid:         return "multiline_sentinel_invalid";
     }
     return "unknown";
@@ -221,31 +221,39 @@ auto parse_error::to_string() const -> std::string
 auto validate_formatter(std::string_view marker)
     -> std::expected<formatter, parse_error>
 {
-    if (marker.size() < 2) {
-        return err(parse_error_kind::formatter_too_short, 0,
-                   std::format("formatter must be at least 2 characters, got {}",
-                               marker.size()));
-    }
-    for (std::size_t i = 0; i < marker.size(); ++i) {
-        if (!is_valid_formatter_char(marker[i])) {
-            return err(parse_error_kind::formatter_invalid_char, i,
-                       std::format("formatter character '{}' is not valid "
-                                   "(must be printable ASCII, non-alphanumeric, "
-                                   "non-whitespace)", marker[i]));
+    // The marker is counted in code points, not bytes (SPEC 3.1).
+    char32_t prev = 0, last = 0;
+    std::size_t count = 0, prev_at = 0, last_at = 0;
+    for (std::size_t i = 0; i < marker.size();) {
+        const auto d = decode_utf8(marker.substr(i));
+        if (!d) {
+            return err(parse_error_kind::invalid_utf8, i, "formatter is not valid UTF-8");
         }
+        if (!is_valid_formatter_char(d->cp)) {
+            return err(parse_error_kind::formatter_invalid_char, i,
+                       std::format("formatter character '{}' (U+{:04X}) is not valid "
+                                   "(must be Unicode punctuation or a symbol)",
+                                   marker.substr(i, d->len), static_cast<std::uint32_t>(d->cp)));
+        }
+        prev = last; prev_at = last_at;
+        last = d->cp; last_at = i;
+        ++count;
+        i += d->len;
+    }
+    if (count < 2) {
+        return err(parse_error_kind::formatter_too_short, 0,
+                   std::format("formatter must be at least 2 characters, got {}", count));
     }
     // Keep the right two characters. A longer opener drops what is in front.
-    const char s = marker[marker.size() - 2];
-    const char b = marker[marker.size() - 1];
-    if (s == b) {
-        return err(parse_error_kind::formatter_separator_equals_bookend, marker.size() - 2,
+    if (prev == last) {
+        return err(parse_error_kind::formatter_separator_equals_bookend, prev_at,
                    std::format("formatter separator '{}' matches the comment "
-                               "character; they must differ", s));
+                               "character; they must differ", encode_utf8(prev)));
     }
     formatter fmt;
-    fmt.stand_in  = b;
-    fmt.separator = s;
-    fmt.bookend   = b;
+    fmt.stand_in  = last;
+    fmt.separator = prev;
+    fmt.bookend   = last;
     return fmt;
 }
 
@@ -253,7 +261,7 @@ auto validate_formatter(std::string_view marker)
 //  parse_line
 // ──────────────────────────────────────────────────────────────
 
-auto parse_line(std::string_view raw)
+auto parse_line(std::string_view raw, split_rule rule)
     -> std::expected<parsed_line, parse_error>
 {
     const auto line = strip_eol(raw);
@@ -370,9 +378,18 @@ auto parse_line(std::string_view raw)
 
     // 6. Marker run. Keep the right two characters: splice, then comment.
     std::size_t marker_len = 0;
-    while (marker_len < sv.size() && is_valid_formatter_char(sv[marker_len]))
-        ++marker_len;
-    if (marker_len < 2) {
+    std::size_t marker_chars = 0;
+    while (marker_len < sv.size()) {
+        const auto d = decode_utf8(sv.substr(marker_len));
+        if (!d) {
+            return err(parse_error_kind::invalid_utf8, col + marker_len,
+                       "the formatter is not valid UTF-8");
+        }
+        if (!is_valid_formatter_char(d->cp)) break;
+        marker_len += d->len;
+        ++marker_chars;
+    }
+    if (marker_chars < 2) {
         return err(parse_error_kind::formatter_too_short, col,
                    "expected a marker of at least 2 characters after the line number");
     }
@@ -404,7 +421,9 @@ auto parse_line(std::string_view raw)
 
     // 8. Scan the rest for the comment marker.
     const auto data_region_col = col;
-    const auto marker_pos = find_comment_marker(sv, fmt.bookend);
+    const std::string bookend_text = encode_utf8(fmt.bookend);
+    const std::string separator_text = encode_utf8(fmt.separator);
+    const auto marker_pos = find_comment_marker(sv, bookend_text);
 
     std::string_view data_part;
     std::string_view comment_part;
@@ -413,7 +432,7 @@ auto parse_line(std::string_view raw)
         data_part = sv;
     } else {
         data_part    = sv.substr(0, marker_pos);
-        comment_part = sv.substr(marker_pos + 1);
+        comment_part = sv.substr(marker_pos + bookend_text.size());
     }
 
     // Strip trailing whitespace from the data part (it ends at the
@@ -421,16 +440,19 @@ auto parse_line(std::string_view raw)
     data_part = rtrim(data_part);
 
     // 9. Split data on the separator (if present).
-    auto hier_or_err = split_hierarchy(data_part, fmt.separator, data_region_col);
-    if (!hier_or_err) {
-        return std::unexpected{std::move(hier_or_err.error())};
-    }
-
     parsed_line out;
+    if (rule == split_rule::fields) {
+        out.hierarchy = split_fields(data_part, separator_text);
+    } else {
+        auto hier_or_err = split_hierarchy(data_part, separator_text, data_region_col);
+        if (!hier_or_err) {
+            return std::unexpected{std::move(hier_or_err.error())};
+        }
+        out.hierarchy = std::move(*hier_or_err);
+    }
     out.kind      = line_kind::data;
     out.number    = number;
     out.fmt       = fmt;
-    out.hierarchy = std::move(*hier_or_err);
     out.comment   = std::string{trim(comment_part)};
     return out;
 }

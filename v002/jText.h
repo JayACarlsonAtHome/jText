@@ -1,5 +1,6 @@
 #pragma once
 
+#include <exception>
 #include <expected>
 #include <string>
 #include <vector>

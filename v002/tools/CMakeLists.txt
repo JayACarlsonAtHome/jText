@@ -6,6 +6,8 @@
 #   jtext_xtox_sql : jText -> SQL. Parses + validates a .jtFull/.jtext file and
 #                    emits SQL by {N} template substitution. Links jtext_core
 #                    (via jText::jText) for the parser + validator.
+#   jtext_close    : adds the closers a file is missing (cut off mid-write, or
+#                    written before closers were required), so it reads again.
 #   jtext_from_sql : DB -> jText. Reads a PostgreSQL table/query (through psql)
 #                    and generates the four jText component files. std-only.
 
@@ -16,6 +18,11 @@ if(JTEXT_BUILD_TOOLS)
     target_link_libraries(jtext_xtox_sql PRIVATE jText::jText)
     target_compile_features(jtext_xtox_sql PRIVATE cxx_std_26)
     set_target_properties(jtext_xtox_sql PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+
+    add_executable(jtext_close jtext_close.cpp)
+    target_link_libraries(jtext_close PRIVATE jText::jText)
+    target_compile_features(jtext_close PRIVATE cxx_std_26)
+    set_target_properties(jtext_close PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 
     add_executable(jtext_from_sql jtext_from_sql.cpp)
     target_compile_features(jtext_from_sql PRIVATE cxx_std_26)
@@ -32,6 +39,12 @@ if(JTEXT_BUILD_TOOLS)
                 -DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures
                 -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_xtox_sql.cmake)
+
+        add_test(NAME tool_jtext_close
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOL=$<TARGET_FILE:jtext_close>
+                -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_close.cmake)
 
         add_test(NAME tool_jtext_from_sql_args
             COMMAND ${CMAKE_COMMAND}

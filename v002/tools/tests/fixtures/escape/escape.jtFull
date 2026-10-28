@@ -20,6 +20,7 @@ INSERT INTO escape (id, name, category) VALUES ({1}, {2}, {3});
  1. #/# id/Number/Not Null                         # primary key
  2. #/# name/String/80/Not Null                    # item name (may contain quotes)
  3. #/# category/String/100/Not Null               # category
+=== End Fields ===
 
 === Data ===
  1. #?# 1

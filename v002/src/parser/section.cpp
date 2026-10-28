@@ -208,6 +208,7 @@ auto to_string(file_error_kind k) -> std::string_view
         case file_error_kind::duplicate_data_block:         return "duplicate_data_block";
         case file_error_kind::unterminated_section:         return "unterminated_section";
         case file_error_kind::io_error:                     return "io_error";
+        case file_error_kind::missing_closer:                return "missing_closer";
     }
     return "unknown";
 }
@@ -259,10 +260,11 @@ auto consume_multiline_body(
 // Parse a single data line, returning the parsed_line. On line-parse
 // failure, wraps the parse_error in a file_error pointing at the
 // 1-based source line.
-auto parse_one_line(std::string_view raw, std::size_t line_no)
+auto parse_one_line(std::string_view raw, std::size_t line_no,
+                    split_rule rule = split_rule::hierarchy)
     -> std::expected<parsed_line, file_error>
 {
-    auto r = parse_line(raw);
+    auto r = parse_line(raw, rule);
     if (!r) {
         return err(file_error_kind::line_parse_failed, line_no,
                    std::format("line parse failed: {}",
@@ -315,17 +317,23 @@ auto build_one_section(
         }
     };
 
+    // Every block closes, like XML: a block left open is a missing closer, which is
+    // what a truncated file looks like.
+    auto missing = [&](std::string_view closer, std::size_t line_no) {
+        return err(file_error_kind::missing_closer, line_no,
+                   std::format("section '{}' is not closed: expected '{}'{}", sec.name, closer,
+                               line_no > lines.size() ? " before the end of the file" : ""));
+    };
+    auto open_closer = [&]() -> std::string_view {
+        if (state == section_state::reading_fields) return "=== End Fields ===";
+        if (state == section_state::reading_data) return "=== End Data ===";
+        return "=== End Section ===";
+    };
+
     while (cursor < lines.size()) {
         const auto& raw = lines[cursor];
         const auto stripped = strip_eol(raw);
         const auto line_no = cursor + 1;  // 1-based
-
-        // ts_store / debug trailer
-        if (stripped.find("-- EOF") != std::string::npos || stripped.find("EOF --") != std::string::npos) {
-            ++cursor;
-            trim_trailing_blank();
-            return sec;
-        }
 
         // Skip comment lines (# or //) inside the section (for robustness with
         // ts_store samples, explanatory comments, etc.). They are already skipped
@@ -360,18 +368,13 @@ auto build_one_section(
 
         if (is_marker) {
             // Section-terminating markers: applicable in any state.
-            if (auto next_name = extract_section_name(interior); !next_name.empty()) {
-                // New section begins → end of current section (implicit).
-                // Do NOT advance cursor; caller will see this banner.
-                trim_trailing_blank();
-                return sec;
-            }
-            if (marker_is_end_file(interior)) {
-                // End of file → end of current section (implicit).
-                trim_trailing_blank();
-                return sec;
+            if (!extract_section_name(interior).empty() || marker_is_end_file(interior)) {
+                return missing(open_closer(), line_no);
             }
             if (marker_is_end_section(interior)) {
+                if (state == section_state::reading_fields || state == section_state::reading_data) {
+                    return missing(open_closer(), line_no);
+                }
                 ++cursor;
                 trim_trailing_blank();
                 return sec;
@@ -448,9 +451,7 @@ auto build_one_section(
                     continue;
                 }
                 if (marker_is_data(interior)) {
-                    state = section_state::reading_data;
-                    ++cursor;
-                    continue;
+                    return missing("=== End Fields ===", line_no);
                 }
                 if (auto [inc_type, inc_path] = extract_include(interior); !inc_type.empty()) {
                     sec.includes.emplace_back(inc_type, inc_path);
@@ -486,23 +487,17 @@ auto build_one_section(
         }
         else {
             // Non-marker, non-blank line: parse as a regular line.
-            auto pl_or_err = parse_one_line(stripped, line_no);
+            // Fields-block lines are declarations ("id/Identity(1,1)/Not Null"): levels.
+            // Everything else here is a data row: values.
+            auto pl_or_err = parse_one_line(stripped, line_no,
+                state == section_state::reading_fields ? split_rule::hierarchy : split_rule::fields);
             if (!pl_or_err) return std::unexpected{pl_or_err.error()};
             const auto& pl = *pl_or_err;
 
             switch (state) {
             case section_state::reading_intro:
-                // Loose lines in intro before fields/data — accept
-                // them as field lines? No: the SPEC requires Fields
-                // banner. We treat this as unexpected.
-                // However, for ts_store bare style (includes/templates at top, then bare
-                // compact data rows "N. #|# f1|f2|..." without Data banner), allow the
-                // compact data lines to be collected directly into data_lines.
-                if (stripped.find(" #|# ") != std::string::npos) {
-                    sec.data_lines.push_back(pl);
-                    ++cursor;
-                    continue;
-                }
+                // A data line belongs inside a Data block (or a Fields block): the
+                // SPEC requires the banner, and there is no banner-less form.
                 return err(file_error_kind::unexpected_marker, line_no,
                            "data line before '=== Fields ===' or '=== Data ===' "
                            "in section");
@@ -538,13 +533,152 @@ auto build_one_section(
         }
     }
 
-    // Reached EOF.
-    // It is legal to end here in reading_data or after_data. It is
-    // semantically odd to end in reading_intro/reading_fields, but
-    // structurally permissible (no actual section content). We let
-    // this through; validator can warn.
-    trim_trailing_blank();
-    return sec;
+    // Reached the end of the file inside the section: it was never closed.
+    return missing(open_closer(), lines.size() + 1);
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Light profile (SPEC 2.0.1)
+//
+//    # JText File - created ...        the magic line, then # metadata
+//    -- Name --                        a section
+//    # Fields: path.jtFlds             its field-list include
+//     1. |# ...                        its rows
+//    -- End Name --                    the section's closer (names match)
+//    -- EOF --                         the file's closer
+//
+//  Every block closes, like the full profile: a section without its
+//  "-- End Name --", or a file without "-- EOF --", is a missing closer.
+// ──────────────────────────────────────────────────────────────
+
+constexpr std::string_view kLightMagic = "# JText File - created";
+
+// The text between "-- " and " --", or empty when the line is not a light banner.
+auto light_banner(std::string_view line) -> std::string_view
+{
+    const auto t = trim(line);
+    if (t.size() < 6 || !t.starts_with("-- ") || !t.ends_with(" --")) return {};
+    return trim(t.substr(3, t.size() - 6));
+}
+
+auto build_light_section(const std::vector<std::string>& lines, std::size_t& cursor,
+                         std::string name)
+    -> std::expected<parsed_section, file_error>
+{
+    parsed_section sec;
+    sec.name = std::move(name);
+    const std::string closer = std::format("-- End {} --", sec.name);
+    auto trim_trailing_blank = [&]() {
+        if (!sec.data_lines.empty() && sec.data_lines.back().number == 0) sec.data_lines.pop_back();
+    };
+
+    while (cursor < lines.size()) {
+        const auto stripped = strip_eol(lines[cursor]);
+        const auto line_no = cursor + 1;
+        const auto t = trim(stripped);
+
+        if (is_blank(stripped)) {
+            // Blank lines separate records (as in a full-profile Data block).
+            if (!sec.data_lines.empty() && sec.data_lines.back().number != 0) {
+                parsed_line blank{};
+                blank.kind = line_kind::data;
+                blank.number = 0;
+                sec.data_lines.push_back(blank);
+            }
+            ++cursor;
+            continue;
+        }
+        if (t.starts_with("# Fields:")) {
+            sec.includes.emplace_back("Fields", std::string{trim(t.substr(9))});
+            ++cursor;
+            continue;
+        }
+        if (t.starts_with('#') || t.starts_with("//")) {
+            ++cursor;
+            continue;
+        }
+        if (const auto banner = light_banner(stripped); !banner.empty()) {
+            if (banner.starts_with("End ") && trim(banner.substr(4)) == sec.name) {
+                ++cursor;
+                trim_trailing_blank();
+                return sec;
+            }
+            if (banner.starts_with("End ")) {
+                return err(file_error_kind::unexpected_marker, line_no,
+                           std::format("'-- {} --' does not close section '{}'", banner, sec.name));
+            }
+            return err(file_error_kind::missing_closer, line_no,
+                       std::format("section '{}' is not closed: expected '{}'", sec.name, closer));
+        }
+        std::string interior;
+        if (is_structural_marker(stripped, interior)) {
+            return err(file_error_kind::unexpected_marker, line_no,
+                       std::format("full-profile marker '=== {} ===' in a light-profile file",
+                                   interior));
+        }
+
+        auto pl_or_err = parse_one_line(stripped, line_no, split_rule::fields);
+        if (!pl_or_err) return std::unexpected{pl_or_err.error()};
+        const auto pl = *pl_or_err;
+        sec.data_lines.push_back(pl);
+        ++cursor;
+        if (pl.kind == line_kind::multiline_opener) {
+            auto body_or_err = consume_multiline_body(lines, cursor, pl.sentinel);
+            if (!body_or_err) {
+                auto e = body_or_err.error();
+                e.line_no = line_no;
+                return std::unexpected{std::move(e)};
+            }
+            sec.data_multiline_bodies.push_back(
+                multiline_body{sec.data_lines.size() - 1, std::move(body_or_err->first)});
+            cursor = body_or_err->second;
+        }
+    }
+    return err(file_error_kind::missing_closer, lines.size() + 1,
+               std::format("section '{}' is not closed: expected '{}' before the end of the file",
+                           sec.name, closer));
+}
+
+// `cursor` is at the magic line.
+auto build_light_file(const std::vector<std::string>& lines, std::size_t cursor)
+    -> std::expected<parsed_file, file_error>
+{
+    parsed_file out;
+    ++cursor;   // the magic line; the # metadata after it is read by JTextFile
+
+    while (cursor < lines.size()) {
+        const auto stripped = strip_eol(lines[cursor]);
+        const auto line_no = cursor + 1;
+        const auto t = trim(stripped);
+        if (is_blank(stripped) || t.starts_with('#') || t.starts_with("//")) {
+            ++cursor;
+            continue;
+        }
+        const auto banner = light_banner(stripped);
+        if (banner == "EOF") {
+            // The file is closed: only blank lines and comments may follow.
+            for (++cursor; cursor < lines.size(); ++cursor) {
+                const auto rest = trim(strip_eol(lines[cursor]));
+                if (!rest.empty() && !rest.starts_with("//") && !rest.starts_with('#')) {
+                    return err(file_error_kind::unexpected_marker, cursor + 1,
+                               "content after '-- EOF --'");
+                }
+            }
+            return out;
+        }
+        if (banner.empty() || banner.starts_with("End ")) {
+            return err(file_error_kind::unexpected_marker, line_no,
+                       banner.empty()
+                           ? std::string{"line outside any section in a light-profile file"}
+                           : std::format("'-- {} --' without an open section", banner));
+        }
+        ++cursor;
+        auto sec_or_err = build_light_section(lines, cursor, std::string{banner});
+        if (!sec_or_err) return std::unexpected{sec_or_err.error()};
+        out.sections.push_back(std::move(*sec_or_err));
+    }
+    return err(file_error_kind::missing_closer, lines.size() + 1,
+               "the file is not closed: expected '-- EOF --' before the end of the file");
 }
 
 // Build a parsed_file from a flat vector of input lines.
@@ -553,14 +687,26 @@ auto build_from_lines(const std::vector<std::string>& lines)
 {
     parsed_file out;
     std::size_t cursor = 0;
+    bool opened_file = false;   // "=== jText File ===" seen: "=== End File ===" must close it
 
-    // 1. Find and consume the magic line.
-    // Skip leading blank lines and any header comment lines (// or # style, standard or legacy).
-    // This makes ts_store logs (which start with our // header then # from writer) parseable,
-    // while still supporting the === jText File magic.
+    // The file is closed: only blank lines and comments may follow.
+    auto after_end_file = [&]() -> std::expected<parsed_file, file_error> {
+        for (; cursor < lines.size(); ++cursor) {
+            const auto rest = trim(strip_eol(lines[cursor]));
+            if (!rest.empty() && !rest.starts_with("//") && !rest.starts_with('#')) {
+                return err(file_error_kind::unexpected_marker, cursor + 1,
+                           "content after '=== End File ==='");
+            }
+        }
+        return std::move(out);
+    };
+
+    // 1. Find the magic line. Skip leading blank lines and comments (// or #), but not
+    // the light profile's own "# JText File - created" magic line.
     while (cursor < lines.size()) {
         const auto stripped = strip_eol(lines[cursor]);
         auto s = trim(stripped);
+        if (s.starts_with(kLightMagic)) break;
         if (is_blank(stripped) ||
             s.starts_with("//") ||
             s.starts_with("#")) {
@@ -585,14 +731,9 @@ auto build_from_lines(const std::vector<std::string>& lines)
             // immediately see the section banner and stop. This supports the ts_store logs.
         } else if (is_structural_marker(first, interior) && marker_is_jtext_file(interior)) {
             ++cursor;  // consumed the === magic
-        } else if (first_stripped.starts_with("# JText File - created ")) {
-            // legacy # magic from writer; do not advance, header parsing will handle the # block
-        } else if (first_stripped.find("=== <#include#>") != std::string_view::npos ||
-                   first_stripped.find("=== Template:") != std::string_view::npos) {
-            // ts_store bare style: top-level includes + templates (no explicit jText File or
-            // Section banner). The includes bring schema/fields, templates for SQL etc, followed
-            // by bare data rows in compact "N. #|# f1|f2|..." form. Accept here so header loop
-            // can see it; we will auto-start an implicit section for the content.
+            opened_file = true;
+        } else if (trim(first_stripped).starts_with(kLightMagic)) {
+            return build_light_file(lines, cursor);
         } else {
             return err(file_error_kind::missing_magic_line, cursor + 1,
                        std::format("first non-blank line must be "
@@ -624,15 +765,7 @@ auto build_from_lines(const std::vector<std::string>& lines)
             if (marker_is_end_file(interior)) {
                 // File has header only, no sections.
                 ++cursor;
-                return out;
-            }
-            if (interior.find("#include") != std::string::npos ||
-                interior.find("Template:") != std::string::npos) {
-                // ts_store bare style at file header level: includes + templates come before any
-                // Section banner (or instead of one). Back up so the sections logic (or implicit
-                // section creation) will pick up this content as the start of the data.
-                --cursor;
-                break;
+                return after_end_file();
             }
             return err(file_error_kind::unexpected_marker, line_no,
                        std::format("unexpected marker '=== {} ===' in file header",
@@ -643,35 +776,6 @@ auto build_from_lines(const std::vector<std::string>& lines)
         if (!pl_or_err) return std::unexpected{pl_or_err.error()};
         out.header_lines.push_back(*pl_or_err);
         ++cursor;
-    }
-
-    // ts_store bare support (after possible --cursor in header for include/template):
-    // If we have top-level includes/templates or bare data (no Section banner ever emitted
-    // by ts_store split logs), auto-create one implicit section "ts_store" and let
-    // build_one_section consume the includes, templates, and following bare "N. #|# ..." rows.
-    if (out.sections.empty() && cursor < lines.size()) {
-        // skip blanks to see what is next
-        std::size_t probe = cursor;
-        while (probe < lines.size() && is_blank(strip_eol(lines[probe]))) ++probe;
-        if (probe < lines.size()) {
-            std::string inter;
-            auto s = strip_eol(lines[probe]);
-            if (is_structural_marker(s, inter)) {
-                if (inter.find("#include") != std::string::npos ||
-                    inter.find("Template:") != std::string::npos) {
-                    std::string impl_name = "ts_store";
-                    auto sec_or_err = build_one_section(lines, cursor, impl_name);
-                    if (!sec_or_err) return std::unexpected{sec_or_err.error()};
-                    out.sections.push_back(std::move(*sec_or_err));
-                }
-            } else if (s.find(" #|# ") != std::string::npos) {
-                // bare data rows with no preceding include/template even
-                std::string impl_name = "ts_store";
-                auto sec_or_err = build_one_section(lines, cursor, impl_name);
-                if (!sec_or_err) return std::unexpected{sec_or_err.error()};
-                out.sections.push_back(std::move(*sec_or_err));
-            }
-        }
     }
 
     // 3. Read sections.
@@ -692,7 +796,7 @@ auto build_from_lines(const std::vector<std::string>& lines)
 
         if (marker_is_end_file(interior)) {
             ++cursor;
-            return out;
+            return after_end_file();
         }
 
         auto name = extract_section_name(interior);
@@ -709,6 +813,10 @@ auto build_from_lines(const std::vector<std::string>& lines)
         out.sections.push_back(std::move(*sec_or_err));
     }
 
+    if (opened_file) {
+        return err(file_error_kind::missing_closer, lines.size() + 1,
+                   "the file is not closed: expected '=== End File ===' before the end of the file");
+    }
     return out;
 }
 

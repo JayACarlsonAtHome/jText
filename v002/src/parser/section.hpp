@@ -123,6 +123,7 @@ enum class file_error_kind : std::uint8_t {
     duplicate_data_block,           // second "=== Data ===" in a section
     unterminated_section,           // section ended unexpectedly (EOF in fields)
     io_error,                       // istream error
+    missing_closer,                 // a block was opened and never closed (truncated file?)
 };
 
 // Render a file_error_kind as a stable, human-readable string.

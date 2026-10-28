@@ -75,6 +75,7 @@ INSERT INTO workshop_tools (
  5. #/# condition/String/30/Not Null        # new/good/fair/poor
  6. #/# location/String/50/Nullable         # where the tool lives
  7. #/# notes/String/Nullable               # free text notes
+=== End Fields ===
 
 === Data ===
  1. #?# 1

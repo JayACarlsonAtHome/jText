@@ -24,6 +24,8 @@
 #include <string_view>
 #include <vector>
 
+#include "utf8.hpp"
+
 namespace jtext {
 
 // ──────────────────────────────────────────────────────────────
@@ -32,22 +34,23 @@ namespace jtext {
 //  The live marker is two characters: splice, then comment.
 //  A longer run of marker characters is accepted. The reader keeps
 //  the right two and drops what is in front. Those two must differ.
-//  [] is raw data (see raw_data()). Each marker character is printable
-//  ASCII, non-alphanumeric, non-whitespace.
+//  [] is raw data (see raw_data()). Each marker character is one Unicode
+//  code point whose General Category is Punctuation or Symbol (SPEC 3.1):
+//  any printable non-alphanumeric ASCII character, or one such as U+25AE.
 //
 //  stand_in is set equal to the comment character and is unused.
 // ──────────────────────────────────────────────────────────────
 
 struct formatter {
-    char bookend   = '\0';
-    char separator = '\0';
-    char stand_in  = '\0';
+    char32_t bookend   = 0;
+    char32_t separator = 0;
+    char32_t stand_in  = 0;
 
     constexpr auto operator==(const formatter&) const -> bool = default;
 
     // [] is raw data: no splice, no comment. The rest of the line is the value.
     constexpr auto raw_data() const -> bool {
-        return separator == '[' && bookend == ']';
+        return separator == U'[' && bookend == U']';
     }
 
     // The two live characters: splice, then comment.
@@ -122,6 +125,7 @@ enum class parse_error_kind : std::uint8_t {
     hierarchy_empty_segment,             // hierarchy contains an empty segment
     multiline_missing_sentinel,          // "<<<" with no following sentinel
     multiline_sentinel_invalid,          // sentinel too short / has whitespace
+    invalid_utf8,                        // the formatter's bytes are not UTF-8
 };
 
 // Render a parse_error_kind as a stable, human-readable string.
@@ -156,7 +160,19 @@ struct parse_error {
 //  Returns parsed_line on success, parse_error on failure.
 // ──────────────────────────────────────────────────────────────
 
-auto parse_line(std::string_view line) -> std::expected<parsed_line, parse_error>;
+//  split_rule
+//
+//  How the splice character divides the data (SPEC 2.6.3, 3.3).
+//    hierarchy - levels of one value: a leading or trailing separator is
+//                cosmetic, an empty level is an error. Fields-block lines,
+//                file-header lines.
+//    fields    - the values of a compact row: every separator splits, an
+//                empty value ("||", or a trailing "|") is an empty string.
+//                Data-block lines. This is the exact inverse of the writer.
+enum class split_rule : std::uint8_t { hierarchy, fields };
+
+auto parse_line(std::string_view line, split_rule rule = split_rule::hierarchy)
+    -> std::expected<parsed_line, parse_error>;
 
 // ──────────────────────────────────────────────────────────────
 //  validate_formatter
@@ -175,15 +191,12 @@ auto validate_formatter(std::string_view three_chars)
 //  in later sessions.
 // ──────────────────────────────────────────────────────────────
 
-constexpr auto is_valid_formatter_char(char c) -> bool
+constexpr auto is_valid_formatter_char(char32_t cp) -> bool
 {
-    // Must be printable ASCII (0x21..0x7E), non-alphanumeric, non-whitespace.
-    const auto u = static_cast<unsigned char>(c);
-    if (u < 0x21 || u > 0x7E) return false;            // unprintable or non-ASCII
-    if ((u >= '0' && u <= '9') ||
-        (u >= 'A' && u <= 'Z') ||
-        (u >= 'a' && u <= 'z')) return false;          // alphanumeric
-    return true;
+    // One code point whose General Category is Punctuation or Symbol: never a
+    // letter, digit, mark, space, control or format character. In ASCII that is
+    // exactly the printable non-alphanumeric characters.
+    return is_punctuation_or_symbol(cp);
 }
 
 }  // namespace jtext

@@ -674,10 +674,10 @@ auto assemble_records(
         }
 
         // Compact row: one data line carries consecutive fields, using a
-        // formatter such as #|# so the line parser already split the tail into
+        // formatter such as |# so the line parser already split the tail into
         // pl.hierarchy (one entry per value). Like every data line, the number
         // before '.' is a FIELD POSITION, the first one on the line (SPEC
-        // Section 2.6.3); a whole record is "1. #|# <id>|<f2>|...|<fN>".
+        // Section 2.6.3); a whole record is "1. |# <id>|<f2>|...|<fN>".
         // (Per-field data lines have hierarchy.size() == 1.)
         if (pl.hierarchy.size() > 1) {
             // full record in one line
@@ -700,7 +700,7 @@ auto assemble_records(
             for (std::size_t fi = 0; fi < pl.hierarchy.size() && first + fi < field_count; ++fi) {
                 const auto& hv = pl.hierarchy[fi];
                 // We picked '|' as the field separator character for compact
-                // rows ("1. #|# f1|f2|...").
+                // rows ("1. |# f1|f2|...").
                 // Null is represented by the embedded ASCII Unit Separator (0x1F)
                 // so that a null field appears as |\x1F| while empty string is || .
                 // This allows the surface to look similar (|| vs || with invisible)

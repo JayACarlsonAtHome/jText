@@ -13,6 +13,7 @@
 === Fields ===
 // (In real use you would use === <#include#> Fields: workshop_from_db.jtFlds ===)
  1. #/# psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist/String
+=== End Fields ===
 === Data ===
 // TODO: Run a data query and emit actual records here
 === End Data ===

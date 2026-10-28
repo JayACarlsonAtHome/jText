@@ -64,6 +64,7 @@ bool date_validation_errors(const std::string& date,
         " 1. #/# id/Number/Not Null\n"
         " 2. #/# d/Date/Nullable\n"
         "\n"
+        "=== End Fields ===\n"
         "=== Data ===\n"
         " 1. #?# 1\n"
         " 2. #?# " + date + "\n"
@@ -109,6 +110,7 @@ bool template_validation_errors(const std::string& body,
         " 1. #/# id/Number/Not Null\n"
         " 2. #/# b/String/Nullable\n"
         "\n"
+        "=== End Fields ===\n"
         "=== Data ===\n"
         " 1. #?# 1\n"
         " 2. #?# y\n"
@@ -134,6 +136,7 @@ bool required_missing_errors(jtext::validation_level level) {
         " 1. #/# id/Number/Not Null\n"
         " 2. #/# name/String/Not Null\n"
         "\n"
+        "=== End Fields ===\n"
         "=== Data ===\n"
         " 1. #?# 1\n"
         "\n"
@@ -162,6 +165,7 @@ std::optional<jtext::validate_result> validate_doc(const std::string& fields,
         "\n"
         "=== Fields ===\n" + fields +
         "\n"
+        "=== End Fields ===\n"
         "=== Data ===\n" + data +
         "\n"
         "=== End Data ===\n"

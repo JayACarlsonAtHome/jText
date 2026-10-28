@@ -10,6 +10,7 @@ export module jText.v002.core;
 export namespace jText::v002 {
     using jText::v002::version;
     using jText::v002::CaseMode;
+    using jText::v002::BadRowPolicy;
     using jText::v002::text_equal;
     using jText::v002::JTextEntry;
     using jText::v002::JTextSection;
