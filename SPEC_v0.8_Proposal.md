@@ -95,7 +95,7 @@ spaces for this rule.
 
 **Section 2.3.** A file whose formatters use any character outside ASCII **must**
 declare `jtext_version` `0.8` or later. Readers implementing v0.8 parse such lines
-regardless of the declared version. *(Not yet emitted by the writer.)*
+regardless of the declared version. *(The full-profile writer declares `0.8`.)*
 
 **Section 6.1.** "Malformed formatters" now includes a character that is not
 Punctuation or Symbol, and a formatter that is not valid UTF-8.
@@ -261,11 +261,13 @@ v0.7 already makes the two-character `<splice><comment>` form the written form; 
 reference writer emitted the old three-character one. It now writes `|#`, `|^`,
 `▮▌`. Readers still accept a three-character marker (Section 3.1 ingress rule).
 
-The writer also chooses formatter characters itself where the caller leaves them to
-it: a row on the default `#` comment character whose data contains `#` gets another
-comment character, and a row with no separator given gets one that is not in its
-data. A separator the caller did give that appears in the data is a bad row, which
-the writer refuses (`BadRowPolicy`: terminate the process, or skip the row).
+The writer's default formatter is `▮▌`, on every line it writes: data rows, Fields
+lines and header lines. Where the caller leaves a character to it, the writer uses `▮`
+as the separator and `▌` as the comment character, unless the row's data holds that
+character; then it uses the first ASCII punctuation character that is not in the data.
+A separator the caller did give that appears in the data is a bad row, which the
+writer refuses (`BadRowPolicy`: terminate the process, or skip the row). A comment
+character the caller gave is kept as given.
 
 ---
 
@@ -308,7 +310,5 @@ agrees on every line and enforces closers. Before, `JTextFile::read_full` read
 
 1. **Double-width characters.** Rule 8 says "should prefer". Should they be a
    validator warning instead?
-2. **ASCII preference.** Should writers use an ASCII formatter whenever the data
-   allows one, so files stay readable by v0.7 tools, and `▮▌` only when needed?
-3. **Version enforcement.** Should a v0.8 reader warn when a file uses a non-ASCII
+2. **Version enforcement.** Should a v0.8 reader warn when a file uses a non-ASCII
    formatter but declares a `jtext_version` below 0.8?

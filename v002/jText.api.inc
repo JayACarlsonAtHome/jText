@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.013"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.014"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -33,8 +33,8 @@ enum class BadRowPolicy { Terminate, Skip };
 
 struct JTextEntry {
     std::size_t number = 0;
-    char32_t delimiter = U'#';    // bookend; left at '#', the writer picks one not in the data
-    char32_t level_sep = 0;       // 0 = the writer picks one, otherwise the separator
+    char32_t delimiter = 0;       // the comment character; 0 = the writer picks (U+258C unless the data holds it)
+    char32_t level_sep = 0;       // the separator; 0 = the writer picks (U+25AE unless the data holds it), otherwise
                                   // (any Unicode punctuation or symbol, e.g. U'|' or U'\u25AE')
     std::vector<std::optional<std::string>> fields;  // nullopt = null value; for compact ts_store, null is encoded as \x1F when writing
     std::string comment;
@@ -100,6 +100,10 @@ public:
     JTextWriter& operator=(JTextWriter&&) noexcept;
 
     // Header metadata
+    // The file's name, for header line 1 (full profile) and error messages. A writer
+    // opened on a path knows it; one attached to a stream needs this. Name only: a
+    // path is cut to its file name.
+    void set_filename(std::string_view name);
     void set_date(std::string_view d);
     void set_purpose(std::string_view p);
     void set_case_mode(CaseMode mode);
@@ -153,6 +157,9 @@ public:
 
     // Append a complete entry
     void append_entry(const JTextEntry& entry);
+
+    // End the record just written: the blank line that separates it from the next.
+    void end_record();
 
     // Batch append — recommended for high-volume use (ts_store, double-buffering, etc.)
     void append_entries(std::span<const JTextEntry> entries);
@@ -247,6 +254,7 @@ private:
 
     // For emitting leading standardized // comment header (File Name etc) on path-based construction
     std::string source_path_;
+    std::string filename_;   // the file's name only (header line 1)
 };
 
 // Line-number padding (SPEC §3.7): when item_count > 9, returns column width

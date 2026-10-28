@@ -1,6 +1,6 @@
 #include <jText/v001.hpp>
 
-static_assert(jText::v001::version() == "v001.013", "v001 version");
+static_assert(jText::v001::version() == "v001.014", "v001 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -38,12 +38,12 @@ JTextEntry compact(std::optional<std::string> id, std::string value) {
     return e;
 }
 
-// The record ids (first value) of every "1. #|# " line in `text`, in order.
+// The record ids (first value) of every "1. |▌ " line in `text`, in order.
 std::vector<std::string> ids_in(const std::string& text) {
     std::vector<std::string> ids;
     std::istringstream in(text);
     for (std::string line; std::getline(in, line);) {
-        constexpr std::string_view kRow = "1. |# ";
+        constexpr std::string_view kRow = "1. |\xE2\x96\x8C ";
         const auto at = line.find(kRow);
         if (at == std::string::npos) continue;
         const auto start = at + kRow.size();
@@ -126,7 +126,7 @@ int main() {
         w.append_entry(f2);
         w.finalize();
         CHECK(!w.last_record_id().has_value());
-        CHECK(o.str().find("2. |# \x1F") != std::string::npos);
+        CHECK(o.str().find("2. |\xE2\x96\x8C \x1F") != std::string::npos);
     }
 
     {
@@ -196,15 +196,16 @@ int main() {
     }
 
     {
-        // Left on the default '#' bookend, a row whose data contains '#' gets a
-        // punctuation bookend that is not in its data, on every writer path.
+        // Left on the default comment character (U+258C), a row whose data contains it
+        // gets a punctuation comment character that is not in its data, on every writer
+        // path. A '#' in the data no longer matters.
         using namespace jText::v001;
         struct Case { std::vector<std::string> fields; std::string line; };
         const std::vector<Case> cases = {
-            {{"1", "C # sharp"}, "1. |^ 1|C # sharp ^ note"},
-            {{"2", "#7aa2f7"}, "1. |^ 2|#7aa2f7 ^ note"},
-            {{"3", "a # b ^ c"}, "1. |% 3|a # b ^ c % note"},
-            {{"4", "plain"}, "1. |# 4|plain # note"},
+            {{"1", "C # sharp"}, "1. |\xE2\x96\x8C 1|C # sharp \xE2\x96\x8C note"},
+            {{"2", "a \xE2\x96\x8C b"}, "1. |# 2|a \xE2\x96\x8C b # note"},
+            {{"3", "a \xE2\x96\x8C b # c"}, "1. |^ 3|a \xE2\x96\x8C b # c ^ note"},
+            {{"4", "plain"}, "1. |\xE2\x96\x8C 4|plain \xE2\x96\x8C note"},
         };
         for (const int path_kind : {0, 1, 2}) {  // append_row, append_row batched, append_entry
             const auto path = std::filesystem::temp_directory_path() / "jtext_auto_bookend_test.jtext";
@@ -245,14 +246,13 @@ int main() {
     }
 
     {
-        // The row scan reads eight bytes at a time: a '|' or '#' must be found at every
-        // position of every length, across word boundaries and in the zero-padded tail.
+        // The row scan must find a '|' or a U+258C at every position of every length.
         using namespace jText::v001;
         for (std::size_t len = 1; len <= 24; ++len) {
             for (std::size_t at = 0; at < len; ++at) {
-                std::string pipe(len, 'x'), hash(len, 'x');
+                std::string pipe(len, 'x'), mark(len, 'x');
                 pipe[at] = '|';
-                hash[at] = '#';
+                mark.replace(at, 1, "\xE2\x96\x8C");
                 std::ostringstream o;
                 JTextWriter w(o);
                 w.set_bad_row_policy(BadRowPolicy::Skip);
@@ -260,25 +260,26 @@ int main() {
                 w.begin_section("Scan");
                 w.append_row(1, {std::string("1"), std::string(len, 'x')}, "", '|');
                 w.append_row(1, {std::string("2"), pipe}, "", '|');
-                w.append_row(1, {std::string("3"), hash}, "", '|');
+                w.append_row(1, {std::string("3"), mark}, "", '|');
                 w.finalize();
                 CHECK(w.skipped_rows() == 1);
-                CHECK(o.str().find("1. |# 1|") != std::string::npos);
-                CHECK(o.str().find("1. |^ 3|" + hash) != std::string::npos);
+                CHECK(o.str().find("1. |\xE2\x96\x8C 1|") != std::string::npos);
+                CHECK(o.str().find("1. |# 3|" + mark) != std::string::npos);
             }
         }
     }
 
     {
-        // With '#' as the separator, the bookend must not also be '#' ("###" is invalid).
+        // With U+258C as the separator, the comment character must not also be U+258C
+        // (the two formatter characters must differ): the writer falls back to '#'.
         using namespace jText::v001;
         std::ostringstream o;
         JTextWriter w(o);
         w.write_header();
-        w.begin_section("HashSep");
-        w.append_row(1, {std::string("1"), std::string("a")}, "", '#');
+        w.begin_section("CommentSep");
+        w.append_row(1, {std::string("1"), std::string("a")}, "", U'\u258C');
         w.finalize();
-        CHECK(o.str().find("1. #^ 1#a") != std::string::npos);
+        CHECK(o.str().find("1. \xE2\x96\x8C# 1\xE2\x96\x8C" "a") != std::string::npos);
     }
 
     {
@@ -344,8 +345,8 @@ int main() {
     }
 
     {
-        // No separator given (level_sep 0): the writer joins with '-', or with a
-        // character not in the data when the data holds '-'. Never with a NUL byte.
+        // No separator given (level_sep 0): the writer joins with U+25AE, or with a
+        // character not in the data when the data holds U+25AE. Never with a NUL byte.
         using namespace jText::v001;
         std::ostringstream o;
         JTextWriter w(o);
@@ -353,9 +354,11 @@ int main() {
         w.begin_section("Flat");
         w.append_row(1, {std::string("Hammer"), std::string("Mixed Case")});
         w.append_row(1, {std::string("2026-10-28")});
+        w.append_row(1, {std::string("a\xE2\x96\xAE"), std::string("b")});
         w.finalize();
-        CHECK(o.str().find("1. -# Hammer-Mixed Case") != std::string::npos);
-        CHECK(o.str().find("1. ^# 2026-10-28") != std::string::npos);
+        CHECK(o.str().find("1. \xE2\x96\xAE\xE2\x96\x8C Hammer\xE2\x96\xAEMixed Case") != std::string::npos);
+        CHECK(o.str().find("1. \xE2\x96\xAE\xE2\x96\x8C 2026-10-28") != std::string::npos);
+        CHECK(o.str().find("1. ^\xE2\x96\x8C a\xE2\x96\xAE^b") != std::string::npos);
         CHECK(o.str().find('\0') == std::string::npos);
     }
 
@@ -603,14 +606,14 @@ int main() {
             }
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            CHECK(text.find(" 1. |# 1 # note\n"
+            CHECK(text.find(" 1. |\xE2\x96\x8C 1 \xE2\x96\x8C note\n"
                             " 2. [*\n"
                             "    ** line one | # x\n"
                             "    **   indented\n"
                             "    **\n"
                             "    ** last\n"
                             "    *]\n"
-                            " 3. |# tail\n") != std::string::npos);
+                            " 3. |\xE2\x96\x8C tail\n") != std::string::npos);
             JTextFile f;
             CHECK(f.read_full(path.string()).has_value());
             const auto& rows = f.sections.at(0).entries;
@@ -695,6 +698,39 @@ int main() {
         std::getline(fi, first);
         CHECK(first == "//File:    named.jtext");
         std::filesystem::remove_all(dir);
+    }
+
+    {
+        // end_record() ends a record with a blank line, so the next field-1 row starts a
+        // new record, on the direct and the auto-batched path. set_filename() gives a
+        // writer attached to a stream its header line 1, the file name only.
+        using namespace jText::v001;
+        for (const std::size_t batch : {std::size_t{0}, std::size_t{10}}) {
+            std::ostringstream o;
+            JTextWriter w(o);
+            w.set_auto_batch_size(batch);
+            w.set_profile(JTextProfile::Full);
+            w.set_filename("some/dir/conn.jtext");
+            w.write_header();
+            w.begin_section("s");
+            w.begin_data();
+            w.append_row(1, {std::string("1"), std::string("a")});
+            w.end_record();
+            w.append_row(1, {std::string("2"), std::string("b")});
+            w.end_record();
+            w.finalize();
+            const std::string text = o.str();
+            CHECK(text.find(" 1. \xE2\x96\xAE\xE2\x96\x8C conn.jtext\n") != std::string::npos);
+            CHECK(text.find("1\xE2\x96\xAE" "a\n\n") != std::string::npos);
+            const auto file = jtext::parse_file_structure(text);
+            CHECK(file.has_value());
+            const auto& lines = file->sections.at(0).data_lines;
+            CHECK(lines.size() == 3 && lines[1].number == 0);   // row, record end, row
+            bool name = false;
+            for (const auto& hl : file->header_lines)
+                if (hl.number == 1 && hl.hierarchy == std::vector<std::string>{"conn.jtext"}) name = true;
+            CHECK(name);
+        }
     }
 
     {
@@ -802,10 +838,10 @@ int main() {
             CHECK(skipped == 3);
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            CHECK(text.find("1. |# 1|ok") != std::string::npos);    // the skipped row took no id
+            CHECK(text.find("1. |\xE2\x96\x8C 1|ok") != std::string::npos);    // the skipped row took no id
             CHECK(text.find("a|b") == std::string::npos);
             CHECK(text.find("8|first") != std::string::npos);        // the good row of the batch
-            CHECK(text.find("1. ~# 7~x|y") != std::string::npos);
+            CHECK(text.find("1. ~\xE2\x96\x8C 7~x|y") != std::string::npos);
             JTextFile f;
             CHECK(f.read_full(path.string()).has_value());
             bool whole = false;

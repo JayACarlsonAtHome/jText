@@ -202,6 +202,7 @@ auto JTextFile::write(std::string_view filepath) const -> std::expected<void, st
     JTextWriter writer(file);
 
     // Copy header metadata
+    writer.set_filename(target);
     writer.set_date(date);
     writer.set_purpose(purpose);
     writer.set_case_mode(case_mode);
@@ -469,15 +470,20 @@ static std::string_view field_text(const std::optional<std::string>& f)
 
 static std::string_view field_text(const std::string& f) { return f; }
 
-// A row left on the default '#' bookend whose data contains '#' gets a bookend
-// that is not in its data, so "C # sharp" reads back as written and "C#" does not
-// warn (SPEC 3.2). A bookend the caller set is kept as given. `has_hash` comes from
-// scan_row, so a row without '#' costs nothing more here.
+// The default formatter: U+25AE splits fields, U+258C starts the comment (SPEC v0.8 Part A).
+static constexpr char32_t kDefaultSplice  = U'\u25AE';
+static constexpr char32_t kDefaultComment = U'\u258C';
+
+// A row the caller gave no comment character (0) is written with U+258C, or, when its
+// data holds U+258C, with an ASCII choice that is not in its data, so the row reads
+// back as written (SPEC 3.2). A comment character the caller set is kept as given.
+// `has_default_comment` comes from scan_row, so a row without U+258C costs nothing more.
 template <class Fields>
-static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& fields, bool has_comment, bool has_hash)
+static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& fields, bool has_comment,
+                               bool has_default_comment)
 {
-    if (requested != 0 && requested != U'#') return requested;
-    if (!has_hash && sep != U'#') return U'#';
+    if (requested != 0) return requested;
+    if (!has_default_comment && sep != kDefaultComment) return kDefaultComment;
     const auto appears = [&](char b) {
         for (const auto& f : fields)
             if (field_text(f).find(b) != std::string_view::npos) return true;
@@ -503,47 +509,51 @@ static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& f
 // separator that is not in its data.
 struct RowScan {
     std::size_t sep_field = 0;
-    bool has_hash = false;
-    bool has_newline = false;   // a field is a multiline value
+    bool has_default_comment = false;   // U+258C is in the data
+    bool has_newline = false;           // a field is a multiline value
 };
 
-// One pass over a row's data: is '#' anywhere, and which field (1-based) first holds
-// `sep`. A plain byte loop: it measured faster than an eight-byte (SWAR) scan here,
-// and the compiler vectorizes it for long fields. This runs for every row written.
+// One pass over a row's data: is U+258C anywhere, and which field (1-based) first holds
+// `sep`. A plain byte loop over each character's first byte: it measured faster than an
+// eight-byte (SWAR) scan here, and the compiler vectorizes it for long fields. This runs
+// for every row written; a field whose first-byte test hits is then searched for the
+// whole character.
 template <class Fields>
 static RowScan scan_row(const Fields& fields, char32_t sep)
 {
     // A field holding a newline is written as a multiline value, whose lines are
-    // verbatim: its '#' and separator do not matter.
+    // verbatim: its comment character and separator do not matter.
+    static const std::string comment = jtext::encode_utf8(kDefaultComment);
     RowScan scan;
-    const std::string needle = sep < 0x80 ? std::string{} : jtext::encode_utf8(sep);
-    const auto byte = static_cast<char>(sep);
+    const std::string needle = jtext::encode_utf8(sep);
+    const char sep_lead = needle.empty() ? '\0' : needle[0];
+    const char comment_lead = comment[0];
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const std::string_view text = field_text(fields[i]);
-        unsigned char hash = 0, found = 0, newline = 0;
+        unsigned char lead = 0, found = 0, newline = 0;
         for (const char c : text) {
-            hash |= static_cast<unsigned char>(c == '#');
-            found |= static_cast<unsigned char>(c == byte);
+            lead |= static_cast<unsigned char>(c == comment_lead);
+            found |= static_cast<unsigned char>(c == sep_lead);
             newline |= static_cast<unsigned char>(c == '\n');
         }
         if (newline) {
             scan.has_newline = true;
             continue;
         }
-        if (!needle.empty()) found = text.find(needle) != std::string_view::npos;
-        scan.has_hash |= hash != 0;
+        if (found && needle.size() > 1) found = text.find(needle) != std::string_view::npos;
+        if (lead) scan.has_default_comment |= text.find(comment) != std::string_view::npos;
         if (found && sep != 0 && scan.sep_field == 0) scan.sep_field = i + 1;
     }
     return scan;
 }
 
-// A row the caller gave no separator (level_sep 0) is written with '-', or, when its
-// data holds '-', with the first choice that is not in its data. 0 when every choice is.
+// A row the caller gave no separator (level_sep 0) whose data holds U+25AE is written
+// with the first ASCII choice that is not in its data. 0 when every choice is.
 template <class Fields>
 static char32_t choose_splice(char32_t requested_bookend, const Fields& fields)
 {
     for (const char b : kBookendChoices) {
-        if (b == '#' || b == '-' || b == requested_bookend) continue;
+        if (b == '#' || b == requested_bookend) continue;
         bool in_data = false;
         for (const auto& f : fields)
             if (field_text(f).find(b) != std::string_view::npos) { in_data = true; break; }
@@ -555,8 +565,8 @@ static char32_t choose_splice(char32_t requested_bookend, const Fields& fields)
 // How one row is written: its separator and bookend, or the field that makes it a bad
 // row (the caller's separator is in that field's data).
 struct RowFormat {
-    char32_t sep = U'-';
-    char32_t bookend = U'#';
+    char32_t sep = kDefaultSplice;
+    char32_t bookend = kDefaultComment;
     std::size_t bad_field = 0;
     bool multiline = false;     // a field holds a newline: format_multiline_record
 };
@@ -564,9 +574,10 @@ struct RowFormat {
 template <class Fields>
 static RowFormat row_format(char32_t requested_bookend, char32_t level_sep, const Fields& fields, bool has_comment)
 {
-    const RowScan scan = scan_row(fields, level_sep != 0 ? level_sep : U'-');
+    const char32_t sep = level_sep != 0 ? level_sep : kDefaultSplice;
+    const RowScan scan = scan_row(fields, sep);
     RowFormat f;
-    f.sep = level_sep != 0 ? level_sep : U'-';
+    f.sep = sep;
     if (scan.sep_field) {
         if (level_sep != 0) {
             f.bad_field = scan.sep_field;
@@ -574,12 +585,12 @@ static RowFormat row_format(char32_t requested_bookend, char32_t level_sep, cons
         }
         f.sep = choose_splice(requested_bookend, fields);
         if (f.sep == 0) {
-            f.sep = U'-';
+            f.sep = kDefaultSplice;
             f.bad_field = scan.sep_field;
             return f;
         }
     }
-    f.bookend = choose_bookend(requested_bookend, f.sep, fields, has_comment, scan.has_hash);
+    f.bookend = choose_bookend(requested_bookend, f.sep, fields, has_comment, scan.has_default_comment);
     f.multiline = scan.has_newline;
     return f;
 }
@@ -781,6 +792,7 @@ JTextWriter::JTextWriter(std::string_view filepath)
     out_ = file;
     owns_stream_ = true;
     source_path_ = std::string{filepath};
+    filename_ = std::filesystem::path(source_path_).filename().string();
 }
 
 JTextWriter::~JTextWriter()
@@ -821,7 +833,8 @@ JTextWriter::JTextWriter(JTextWriter&& other) noexcept
       profile_(other.profile_),
       full_block_(other.full_block_),
       fields_written_(other.fields_written_),
-      source_path_(std::move(other.source_path_))
+      source_path_(std::move(other.source_path_)),
+      filename_(std::move(other.filename_))
 {
     other.out_ = nullptr;
     other.owns_stream_ = false;
@@ -856,6 +869,7 @@ JTextWriter& JTextWriter::operator=(JTextWriter&& other) noexcept
         full_block_ = other.full_block_;
         fields_written_ = other.fields_written_;
         source_path_ = std::move(other.source_path_);
+        filename_ = std::move(other.filename_);
 
         other.out_ = nullptr;
         other.owns_stream_ = false;
@@ -863,6 +877,10 @@ JTextWriter& JTextWriter::operator=(JTextWriter&& other) noexcept
     return *this;
 }
 
+void JTextWriter::set_filename(std::string_view name)
+{
+    filename_ = std::filesystem::path(std::string(name)).filename().string();
+}
 void JTextWriter::set_date(std::string_view d) { date_ = d; }
 void JTextWriter::set_purpose(std::string_view p) { purpose_ = p; }
 void JTextWriter::set_case_mode(CaseMode mode) { case_mode_ = mode; }
@@ -938,8 +956,7 @@ void JTextWriter::write_header()
             date = std::format("{:%Y-%m-%d}", std::chrono::floor<std::chrono::days>(
                                                   std::chrono::system_clock::now()));
         }
-        if (!source_path_.empty())
-            write_full_header_line(1, std::filesystem::path(source_path_).filename().string());
+        if (!filename_.empty()) write_full_header_line(1, filename_);
         write_full_header_line(2, date);
         if (!purpose_.empty()) write_full_header_line(3, purpose_);
         write_full_header_line(4, "0.8");
@@ -958,7 +975,7 @@ void JTextWriter::write_header()
 void JTextWriter::write_full_header_line(std::size_t number, std::string_view value)
 {
     const std::vector<std::string> fields{std::string(value)};
-    const RowFormat fmt = row_format(U'#', 0, fields, false);
+    const RowFormat fmt = row_format(0, 0, fields, false);
     *out_ << format_row(number, fields, "", 2, fmt.sep, fmt.bookend);
 }
 
@@ -1148,7 +1165,7 @@ void JTextWriter::append_row(std::size_t number,
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
-    const RowFormat fmt = row_format(U'#', level_sep, fields, !comment.empty());
+    const RowFormat fmt = row_format(0, level_sep, fields, !comment.empty());
     if (fmt.bad_field) {
         reject_row(fmt.bad_field, fmt.sep, fields[fmt.bad_field - 1]);
         return;
@@ -1182,6 +1199,13 @@ void JTextWriter::append_row(std::size_t number,
         e.level_sep = level_sep;
         write_entry_to_stream(*out_, e, line_pad_width_, fmt.sep, fmt.bookend);
     }
+}
+
+void JTextWriter::end_record()
+{
+    ensure_not_finalized();
+    if (!out_) return;
+    write_lines("\n");
 }
 
 void JTextWriter::write_lines(std::string text)
@@ -1265,7 +1289,8 @@ void JTextWriter::reject_row(std::size_t field, char32_t sep, std::string_view v
     const bool skip = bad_row_policy_ == BadRowPolicy::Skip;
     std::println(stderr, "jText {}: cannot write a row: field {} contains the separator '{}'",
                  skip ? "WARNING" : "ERROR", field, jtext::encode_utf8(sep));
-    std::println(stderr, "  file:    {}", source_path_.empty() ? "(stream)" : source_path_);
+    std::println(stderr, "  file:    {}", !source_path_.empty() ? source_path_
+                                         : !filename_.empty() ? filename_ : std::string("(stream)"));
     std::println(stderr, "  section: {}", section_.empty() ? "(none)" : section_);
     std::println(stderr, "  value:   \"{}\"", shown);
     std::println(stderr, "  fix:     give this row a separator that is not in its data (level_sep)");
