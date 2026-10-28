@@ -1,4 +1,4 @@
-//File:    /home/jay/git/jText/samples/workshop_from_db/workshop_from_db.jschma
+//File:    workshop_from_db.jschma
 //Date:    2026-06-05
 //Purpose: SQL Schema File
 //Related: type=PostgreSQL table=workshop_tools

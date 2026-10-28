@@ -1,6 +1,6 @@
 #include <jText/v001.hpp>
 
-static_assert(jText::v001::version() == "v001.011", "v001 version");
+static_assert(jText::v001::version() == "v001.012", "v001 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -629,6 +629,72 @@ int main() {
             std::filesystem::remove(path);
             std::filesystem::remove(again);
         }
+    }
+
+    {
+        // A file of configurations (dev, test, prod): replacing one section's data
+        // leaves every other line of the file exactly as it was.
+        auto section = [](std::string_view name, std::string_view rows) {
+            return std::string("=== Section: ") + std::string(name) + " ===\n"
+                   "=== Template: Insert ===\n[*\n** INSERT {1};\n*]\n"
+                   "=== Fields ===\n 1. /# id/Identity(1,1)\n 2. /# host/String\n=== End Fields ===\n"
+                   "=== Data ===\n" + std::string(rows) + "=== End Data ===\n=== End Section ===\n\n";
+        };
+        const std::string head = "=== jText File ===\n 1. ?# configs\n\n";
+        const std::string dev = section("dev", " 1. |# 1|dev.local\n");
+        const std::string prod = section("prod", " 1. |# 1|prod.example\n# keep me\n");
+        const std::string full = head + dev + section("test", " 1. |# 1|test.local\n\n 1. |# 2|test2\n")
+                                 + prod + "=== End File ===\n";
+        const auto replaced = jtext::replace_section_data(full, "test", " 1. |# 1|qa.local\n");
+        CHECK(replaced.has_value());
+        CHECK(*replaced == head + dev + section("test", " 1. |# 1|qa.local\n") + prod + "=== End File ===\n");
+        const auto back = jtext::parse_file_structure(*replaced);
+        CHECK(back.has_value() && back->sections.size() == 3);
+        CHECK(back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{"1", "qa.local"}));
+
+        const std::string light =
+            "# JText File - created x\n\n"
+            "-- dev --\n# Fields: cfg.jtFlds\n 1. |# 1|dev.local\n-- End dev --\n\n"
+            "-- test --\n# Fields: cfg.jtFlds\n// note above the rows\n 1. |# 1|test.local\n-- End test --\n\n"
+            "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --";   // no final newline
+        const auto light_replaced = jtext::replace_section_data(light, "test", " 1. |# 1|qa.local\n 1. |# 2|qa2\n");
+        CHECK(light_replaced.has_value());
+        CHECK(*light_replaced ==
+              "# JText File - created x\n\n"
+              "-- dev --\n# Fields: cfg.jtFlds\n 1. |# 1|dev.local\n-- End dev --\n\n"
+              "-- test --\n# Fields: cfg.jtFlds\n// note above the rows\n 1. |# 1|qa.local\n 1. |# 2|qa2\n-- End test --\n\n"
+              "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --");
+        CHECK(jtext::parse_file_structure(*light_replaced).has_value());
+
+        // An empty light section takes its first rows right before its closer.
+        const auto empty = jtext::replace_section_data(
+            "# JText File - created x\n-- new --\n-- End new --\n-- EOF --\n", "new", " 1. |# 1|a\n");
+        CHECK(empty && *empty == "# JText File - created x\n-- new --\n 1. |# 1|a\n-- End new --\n-- EOF --\n");
+
+        auto kind = [](const std::expected<std::string, jtext::file_error>& r) {
+            return r ? std::string("ok") : std::string(jtext::to_string(r.error().kind));
+        };
+        CHECK(kind(jtext::replace_section_data(full, "staging", "")) == "section_not_found");
+        CHECK(kind(jtext::replace_section_data(head + dev + dev + "=== End File ===\n", "dev", "")) == "section_ambiguous");
+        CHECK(kind(jtext::replace_section_data(full.substr(0, full.size() - 17), "test", "")) == "missing_closer");
+    }
+
+    {
+        // //File: holds the file's name only: a path would go stale when the file moves.
+        using namespace jText::v001;
+        const auto dir = std::filesystem::temp_directory_path() / "jtext_file_header_test";
+        std::filesystem::create_directories(dir);
+        const auto path = dir / "named.jtext";
+        {
+            JTextWriter w(path.string());
+            w.write_header();
+            w.finalize();
+        }
+        std::ifstream fi(path);
+        std::string first;
+        std::getline(fi, first);
+        CHECK(first == "//File:    named.jtext");
+        std::filesystem::remove_all(dir);
     }
 
     {

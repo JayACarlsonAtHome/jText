@@ -200,15 +200,13 @@ auto to_string(file_error_kind k) -> std::string_view
         case file_error_kind::missing_magic_line:           return "missing_magic_line";
         case file_error_kind::missing_fields_block:         return "missing_fields_block";
         case file_error_kind::unexpected_marker:            return "unexpected_marker";
-        case file_error_kind::unknown_section_state:        return "unknown_section_state";
         case file_error_kind::template_missing_body:        return "template_missing_body";
-        case file_error_kind::multiline_unterminated:       return "multiline_unterminated";
-        case file_error_kind::multiline_sentinel_empty_body: return "multiline_sentinel_empty_body";
         case file_error_kind::line_parse_failed:            return "line_parse_failed";
         case file_error_kind::duplicate_data_block:         return "duplicate_data_block";
-        case file_error_kind::unterminated_section:         return "unterminated_section";
         case file_error_kind::io_error:                     return "io_error";
         case file_error_kind::missing_closer:                return "missing_closer";
+        case file_error_kind::section_not_found:             return "section_not_found";
+        case file_error_kind::section_ambiguous:             return "section_ambiguous";
     }
     return "unknown";
 }
@@ -428,6 +426,8 @@ auto build_one_section(
                                                "before its data", sec.name));
                     }
                     state = section_state::reading_data;
+                    sec.has_data_block = true;
+                    sec.data_begin = cursor + 1;
                     ++cursor;
                     continue;
                 }
@@ -458,6 +458,7 @@ auto build_one_section(
             if (state == section_state::reading_data) {
                 if (marker_is_end_data(interior)) {
                     trim_trailing_blank();
+                    sec.data_end = cursor;
                     state = section_state::after_data;
                     ++cursor;
                     continue;
@@ -556,6 +557,8 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
 {
     parsed_section sec;
     sec.name = std::move(name);
+    sec.has_data_block = true;
+    bool data_seen = false;
     const std::string closer = std::format("-- End {} --", sec.name);
     auto trim_trailing_blank = [&]() {
         if (!sec.data_lines.empty() && sec.data_lines.back().number == 0) sec.data_lines.pop_back();
@@ -588,6 +591,8 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
         }
         if (const auto banner = light_banner(stripped); !banner.empty()) {
             if (banner.starts_with("End ") && trim(banner.substr(4)) == sec.name) {
+                sec.data_end = cursor;
+                if (!data_seen) sec.data_begin = cursor;
                 ++cursor;
                 trim_trailing_blank();
                 return sec;
@@ -609,6 +614,10 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
         auto pl_or_err = parse_one_line(stripped, line_no, split_rule::fields);
         if (!pl_or_err) return std::unexpected{pl_or_err.error()};
         const auto pl = *pl_or_err;
+        if (!data_seen) {
+            data_seen = true;
+            sec.data_begin = cursor;
+        }
         sec.data_lines.push_back(pl);
         ++cursor;
         if (pl.kind == line_kind::multiline_opener) {
@@ -854,6 +863,44 @@ auto parse_file_structure(std::string_view text)
         lines.emplace_back(text.substr(start));
     }
     return build_from_lines(lines);
+}
+
+auto replace_section_data(std::string_view text, std::string_view section, std::string_view data)
+    -> std::expected<std::string, file_error>
+{
+    std::vector<std::string_view> lines;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        auto end = text.find('\n', start);
+        if (end == std::string_view::npos) end = text.size();
+        lines.push_back(text.substr(start, end - start));
+        start = end + 1;
+    }
+
+    auto parsed = parse_file_structure(text);
+    if (!parsed) return std::unexpected{parsed.error()};
+    const parsed_section* found = nullptr;
+    for (const auto& sec : parsed->sections) {
+        if (sec.name != section) continue;
+        if (found) {
+            return err(file_error_kind::section_ambiguous, 0,
+                       std::format("section '{}' appears more than once", section));
+        }
+        found = &sec;
+    }
+    if (!found || !found->has_data_block) {
+        return err(file_error_kind::section_not_found, 0,
+                   found ? std::format("section '{}' has no data block", section)
+                         : std::format("no section '{}'", section));
+    }
+
+    std::string out;
+    for (std::size_t i = 0; i < found->data_begin; ++i) { out += lines[i]; out += '\n'; }
+    out += data;
+    if (!data.empty() && data.back() != '\n') out += '\n';
+    for (std::size_t i = found->data_end; i < lines.size(); ++i) { out += lines[i]; out += '\n'; }
+    if (!text.empty() && text.back() != '\n' && !out.empty()) out.pop_back();
+    return out;
 }
 
 }  // namespace jtext

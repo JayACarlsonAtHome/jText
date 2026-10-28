@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.011"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.012"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -249,7 +249,7 @@ void write_fields_include_line(std::ostream& out, std::string_view jtflds_path);
 // Always uses // comments. Call this before writing any data or jText's own # headers.
 // The produced block is (keys chosen for brevity + colons for consistency; values aligned):
 //
-//   //File:    <full-or-relative-path>
+//   //File:    <the file's name: never a path, which goes stale when the file moves>
 //   //Date:    YYYY-MM-DD
 //   //Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
 //   //Related: type=PostgreSQL table=workshop_tools   (optional, if origin known)
@@ -262,6 +262,6 @@ void write_fields_include_line(std::ostream& out, std::string_view jtflds_path);
 //
 // Data...
 void write_file_comment_header(std::ostream& os,
-                               std::string_view full_path,
+                               std::string_view path,
                                std::string_view purpose,
                                std::string_view related = {});

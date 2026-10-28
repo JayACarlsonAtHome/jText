@@ -1,4 +1,4 @@
-//File:    samples/light_profile/run_manifest.jtext
+//File:    run_manifest.jtext
 //Date:    2026-06-08
 //Purpose: ts_store test matrix run manifest
 //Related: type=ts_store table=ts_run_manifest

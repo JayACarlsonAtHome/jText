@@ -125,12 +125,9 @@ enum class parse_error_kind : std::uint8_t {
     invalid_line_number,                 // 0, > 99, or not a number
     missing_formatter,                   // line ends after the period
     formatter_too_short,                 // fewer than 2 chars where the marker goes
-    formatter_bookends_mismatch,         // retained; no longer raised
     formatter_separator_equals_bookend,  // the right two characters are the same
     formatter_invalid_char,              // non-ASCII, alphanumeric, or whitespace
     hierarchy_empty_segment,             // hierarchy contains an empty segment
-    multiline_missing_sentinel,          // retained; no longer raised ("<<<" is gone)
-    multiline_sentinel_invalid,          // retained; no longer raised
     invalid_utf8,                        // the formatter's bytes are not UTF-8
     formatter_reserved,                  // '[' splice other than [] and [*
     multiline_opener_text,               // text after "[*" that is not a "#" comment

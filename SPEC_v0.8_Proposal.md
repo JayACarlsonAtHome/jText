@@ -5,7 +5,7 @@
 # Proposal: jText v0.8
 
 **Status:** Proposal. Not merged into `SPEC.md`.
-**Changes:** Sections 2.0, 2.3, 2.6, 3, 3.1, 3.2, 3.6, 5, 6.1, 10, 11.
+**Changes:** Sections 2.0, 2.1, 2.3, 2.6, 3, 3.1, 3.2, 3.6, 5, 6.1, 10, 11.
 
 | Part | Change | Code (canonical jText, v001 + v002) |
 |---|---|---|
@@ -14,6 +14,8 @@
 | C | Multiline values: `[*` … `**` … `*]` | implemented |
 | D | Removed: banner-less rows, special blocks, `<<<` sentinel blocks | implemented; `jtext_close` rewrites `<<<` blocks |
 | E | Writers emit the two-character formatter | implemented |
+| F | Why field positions stop at 99 (rationale only) | no code change |
+| G | `//File:` holds the file's name only | implemented |
 
 ---
 
@@ -264,6 +266,30 @@ it: a row on the default `#` comment character whose data contains `#` gets anot
 comment character, and a row with no separator given gets one that is not in its
 data. A separator the caller did give that appears in the data is a bad row, which
 the writer refuses (`BadRowPolicy`: terminate the process, or skip the row).
+
+---
+
+## Part F — Why field positions stop at 99 (Section 3.7)
+
+No rule changes; the limit stays. Section 3.7 gains its reason:
+
+> Line numbers are right-aligned in two columns, so every line of a file spends the
+> same width on its number. A 100th field position would make that three columns on
+> every line, not only on the wide records: one more character per line, which adds
+> up in long tables. A record of more than 99 fields is also past what a person reads
+> as one record. Producers with wider rows split them into related tables (Section 4).
+
+---
+
+## Part G — `//File:` holds the file's name only (Section 2.1)
+
+`//File:    <full-or-relative-path>` becomes `//File:    <the file's name>`, with:
+
+> `//File:` holds the file's name only, never a path: files and the projects that hold them
+> move (a portable drive mounts at a different place on each OS), and a recorded path would go
+> stale.
+
+The writer (`write_file_comment_header`) writes the name of the path it is given. *(Implemented.)*
 
 ---
 

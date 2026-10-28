@@ -1,4 +1,4 @@
-//File:    /home/jay/git/jText/samples/workshop_from_db/workshop_from_db.jtext
+//File:    workshop_from_db.jtext
 //Date:    2026-06-05
 //Purpose: jText Data File
 //Related: type=PostgreSQL table=workshop_tools

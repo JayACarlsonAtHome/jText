@@ -1,4 +1,4 @@
-//File:    /home/jay/git/jText/Rationale/02_Cpp23_Modernization_and_No_Macros.md
+//File:    02_Cpp23_Modernization_and_No_Macros.md
 //Date:    2026-06-05
 //Purpose: Rationale Document for jText: 02 C++23 Modernization and No Macros
 //

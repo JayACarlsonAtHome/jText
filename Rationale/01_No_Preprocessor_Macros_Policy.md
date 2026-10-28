@@ -1,4 +1,4 @@
-//File:    /home/jay/git/jText/Rationale/01_No_Preprocessor_Macros_Policy.md
+//File:    01_No_Preprocessor_Macros_Policy.md
 //Date:    2026-06-05
 //Purpose: Rationale Document for jText: 01 No Preprocessor Macros Policy
 //

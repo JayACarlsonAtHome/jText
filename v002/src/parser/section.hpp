@@ -86,6 +86,14 @@ struct parsed_section {
     // Support for <#include#> markers (e.g. for ts_store schema/fields sharing)
     // These are recognized in intro state as special markers, not regular entries.
     std::vector<std::pair<std::string, std::string>> includes; // {type, path}
+
+    // Where the section's data lines are in the file: 0-based line indexes, [data_begin,
+    // data_end). Full profile: between "=== Data ===" and "=== End Data ===". Light
+    // profile: from the first data line to "-- End Name --"; the includes and comments
+    // above the first data line stay outside. replace_section_data() rewrites this range.
+    bool        has_data_block = false;
+    std::size_t data_begin = 0;
+    std::size_t data_end = 0;
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -117,15 +125,13 @@ enum class file_error_kind : std::uint8_t {
     missing_magic_line,             // first non-blank line is not "=== jText File ==="
     missing_fields_block,           // section reached Data without a Fields block first
     unexpected_marker,              // a "=== Foo ===" marker out of place
-    unknown_section_state,           // line not consumable in current state
     template_missing_body,          // "=== Template: ===" without a multiline opener
-    multiline_unterminated,         // sentinel not found before EOF
-    multiline_sentinel_empty_body,  // closer sentinel immediately after opener
     line_parse_failed,              // parse_line() returned an error
     duplicate_data_block,           // second "=== Data ===" in a section
-    unterminated_section,           // section ended unexpectedly (EOF in fields)
     io_error,                       // istream error
     missing_closer,                 // a block was opened and never closed (truncated file?)
+    section_not_found,              // replace_section_data: no section of that name
+    section_ambiguous,              // replace_section_data: the name is used more than once
 };
 
 // Render a file_error_kind as a stable, human-readable string.
@@ -165,6 +171,13 @@ auto parse_file_structure(std::istream& in)
 
 auto parse_file_structure(std::string_view text)
     -> std::expected<parsed_file, file_error>;
+
+// The file `text` with one section's data lines replaced by `data` (whole lines, each
+// ending in '\n'); every other line stays exactly as it was: the header, templates,
+// Fields block, includes, and the other sections. The section is found by name and
+// must appear once, with a data block. Comments between the old data lines go with them.
+auto replace_section_data(std::string_view text, std::string_view section, std::string_view data)
+    -> std::expected<std::string, file_error>;
 
 // ──────────────────────────────────────────────────────────────
 //  Helpers exposed for testing.

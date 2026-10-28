@@ -253,16 +253,13 @@ auto to_string(parse_error_kind k) -> std::string_view
         case parse_error_kind::invalid_line_number:                return "invalid_line_number";
         case parse_error_kind::missing_formatter:                  return "missing_formatter";
         case parse_error_kind::formatter_too_short:                return "formatter_too_short";
-        case parse_error_kind::formatter_bookends_mismatch:        return "formatter_bookends_mismatch";
         case parse_error_kind::formatter_separator_equals_bookend: return "formatter_separator_equals_bookend";
         case parse_error_kind::formatter_invalid_char:             return "formatter_invalid_char";
         case parse_error_kind::hierarchy_empty_segment:            return "hierarchy_empty_segment";
-        case parse_error_kind::multiline_missing_sentinel:         return "multiline_missing_sentinel";
         case parse_error_kind::invalid_utf8:                       return "invalid_utf8";
         case parse_error_kind::formatter_reserved:                 return "formatter_reserved";
         case parse_error_kind::multiline_opener_text:              return "multiline_opener_text";
         case parse_error_kind::value_line_invalid:                 return "value_line_invalid";
-        case parse_error_kind::multiline_sentinel_invalid:         return "multiline_sentinel_invalid";
     }
     return "unknown";
 }

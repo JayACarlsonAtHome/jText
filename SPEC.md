@@ -1,4 +1,4 @@
-//File:    /home/jay/git/jText/SPEC.md
+//File:    SPEC.md
 //Date:    2026-06-05
 //Purpose: Specification for jText File Format
 //

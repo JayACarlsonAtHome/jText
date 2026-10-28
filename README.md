@@ -1,4 +1,4 @@
-//File:    /home/jay/git/jText/README.md
+//File:    README.md
 //Date:    2026-06-05
 //Purpose: README for jText Format and Tools
 //

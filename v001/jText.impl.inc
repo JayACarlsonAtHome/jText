@@ -341,14 +341,15 @@ auto JTextFile::validate() const -> std::expected<void, std::string> {
 // ===================================================================
 
 void write_file_comment_header(std::ostream& os,
-                                   std::string_view full_path,
+                                   std::string_view path,
                                    std::string_view purpose,
                                    std::string_view related) {
     auto now = std::chrono::system_clock::now();
     auto today = std::chrono::floor<std::chrono::days>(now);
     std::string date_str = std::format("{:%Y-%m-%d}", today);
 
-    os << "//File:    " << full_path << "\n";
+    // The file's name only: a path would go stale when the file or its project moves.
+    os << "//File:    " << std::filesystem::path(std::string(path)).filename().string() << "\n";
     os << "//Date:    " << date_str << "\n";
     os << "//Purpose: " << purpose << "\n";
     if (!related.empty()) {
