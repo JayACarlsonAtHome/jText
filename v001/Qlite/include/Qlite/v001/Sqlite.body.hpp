@@ -60,6 +60,23 @@ inline std::vector<std::byte> column<std::vector<std::byte>>(sqlite3_stmt* stmt,
     return std::vector<std::byte>(b, b + static_cast<std::size_t>(n));
 }
 
+// A boolean: a number other than 0, or text text_is_true takes ("true", "t", "yes", ...); NULL: false.
+template<>
+inline bool column<bool>(sqlite3_stmt* stmt, int col) {
+    switch (sqlite3_column_type(stmt, col)) {
+    case SQLITE_INTEGER: return sqlite3_column_int64(stmt, col) != 0;
+    case SQLITE_FLOAT:   return sqlite3_column_double(stmt, col) != 0.0;
+    case SQLITE_NULL:    return false;
+    default:             return text_is_true(column<std::string>(stmt, col));
+    }
+}
+
+template<>
+inline std::optional<bool> column<std::optional<bool>>(sqlite3_stmt* stmt, int col) {
+    if (sqlite3_column_type(stmt, col) == SQLITE_NULL) return std::nullopt;
+    return column<bool>(stmt, col);
+}
+
 template<>
 inline std::optional<std::int64_t> column<std::optional<std::int64_t>>(sqlite3_stmt* stmt, int col) {
     if (sqlite3_column_type(stmt, col) == SQLITE_NULL) return std::nullopt;

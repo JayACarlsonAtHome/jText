@@ -13,7 +13,7 @@
 
 // Package version, "major.minor": major = the v001 API line, minor = the revision.
 // Bump the minor on each small code change; a real (breaking) change moves the major.
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.012"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.013"; }
 
 // ---------------------------------------------------------------------------
 // Errors: each database throws its own type, all derived from Error.
@@ -126,6 +126,21 @@ template<> struct from_text_t<double> {
         return v;
     }
 };
+// A boolean as text, the way the databases send it: PostgreSQL "t" / "f", MariaDB and SQLite
+// "1" / "0", or a word. True: "t", "true", "y", "yes", "on" (any case) or a number other than 0.
+inline bool text_is_true(std::string_view t) {
+    while (!t.empty() && (t.front() == ' ' || t.front() == '\t')) t.remove_prefix(1);
+    while (!t.empty() && (t.back() == ' ' || t.back() == '\t')) t.remove_suffix(1);
+    std::string w;
+    for (char c : t) w += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    if (w == "t" || w == "true" || w == "y" || w == "yes" || w == "on") return true;
+    double v = 0.0;
+    const auto r = std::from_chars(w.data(), w.data() + w.size(), v);
+    return r.ec == std::errc{} && r.ptr == w.data() + w.size() && v != 0.0;
+}
+template<> struct from_text_t<bool> {
+    static bool read(const std::string* t) { return t && text_is_true(*t); }   // NULL: false
+};
 template<typename T> struct from_text_t<std::optional<T>> {
     static std::optional<T> read(const std::string* t) {
         return t ? std::optional<T>(from_text_t<T>::read(t)) : std::nullopt;
@@ -133,146 +148,118 @@ template<typename T> struct from_text_t<std::optional<T>> {
 };
 
 // ---------------------------------------------------------------------------
-// Scalar "top-1" query helpers, for any database: wrap prepare/bind/step/get for a
-// single value, e.g. get_one_long(db, "SELECT n FROM t WHERE id=? LIMIT 1", id).
-// Variadic binds. No row -> the type default (0 / "" / 0.0). Genuine SQL/prepare
-// errors PROPAGATE (a malformed query must not silently read as a clean 0). The *_or
-// variants take an explicit default for the no-row case.
+// Top-1 query helpers, for any database: prepare, bind, step once, and read column 0 of the
+// TOP row: the first of however many the query returns, in its ORDER BY (so "the newest run" is
+// get_top_one_long(db, "SELECT run_id FROM run ORDER BY ts_utc DESC")).
+//
+//   get_top_one<T>(db, sql, args...)               the first row's first column as T; no row: T{}
+//   get_top_one<T>(db, sql, debug, args...)        the same, and with debug=true the SQL and the
+//                                              result go to stderr ("[SQL] ...")
+//   get_top_one_or<T>(db, sql, deflt, args...)     no row: deflt (also with debug, after sql)
+//   get_top_one_debug<T> / get_top_one_or_debug<T>     debug always on
+//
+// T is any type a column reads as: std::int64_t, int, double, bool, std::string, and
+// std::optional<T> of each, which is nullopt for no row and for NULL (so an id lookup cannot
+// mistake "none" for an id: get_top_one<std::optional<std::int64_t>>(db, "SELECT id ...", ...)).
+// A bool reads 1/0, t/f and true/false/yes/no (text_is_true); NULL is false. Values bind in
+// order. A genuine SQL / prepare error PROPAGATES (a malformed query must not read as a clean
+// "no row"). A bool right after sql is always `debug`: to bind a bool first, pass debug
+// before it (get_top_one_long(db, sql, false, true)). The named forms are the common types: get_top_one_long / _string / _double / _bool
+// (and _or, _debug, _or_debug), e.g. get_top_one_bool(db, "SELECT observe FROM contract_modes
+// WHERE os = ? AND toolchain = ?", false, "fedora", "gcc16").
 // ---------------------------------------------------------------------------
-template<Database D, class... B>
-std::int64_t get_one_long(D& db, const char* sql, B&&... b) {
-    std::int64_t v = 0;
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) st.get(v);
-    return v;
+
+// How a result shows in the debug line.
+template<typename T>
+std::string debug_text(const T& v) {
+    if constexpr (std::is_same_v<T, bool>) return v ? "true" : "false";
+    else if constexpr (std::is_same_v<T, std::string>) return "'" + v + "'";
+    else if constexpr (requires { v.has_value(); }) return v ? debug_text(*v) : std::string("NULL");
+    else return *to_text(v);
 }
 
-template<Database D, class... B>
-std::string get_one_string(D& db, const char* sql, B&&... b) {
-    std::string v;
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) st.get(v);
-    return v;
-}
-
-template<Database D, class... B>
-double get_one_double(D& db, const char* sql, B&&... b) {
-    double v = 0.0;
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) st.get(v);
-    return v;
-}
-
-template<Database D, class... B>
-std::int64_t get_one_long_or(D& db, const char* sql, std::int64_t deflt, B&&... b) {
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) { std::int64_t v = 0; st.get(v); return v; }
-    return deflt;
-}
-
-template<Database D, class... B>
-std::string get_one_string_or(D& db, const char* sql, std::string deflt, B&&... b) {
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) { std::string v; st.get(v); return v; }
-    return deflt;
-}
-
-// ---------------------------------------------------------------------------
-// Debug variants: pass debug=true to log the SQL and the returned value to stderr.
-// The overloads let you write: get_one_string(db, sql, true, arg1, arg2)
-// There are also _debug convenience names that always debug.
-// ---------------------------------------------------------------------------
-template<Database D, class... B>
-std::int64_t get_one_long(D& db, const char* sql, bool debug, B&&... b) {
-    if (debug) ::fprintf(stderr, "[SQL] %s\n", sql);
-    std::int64_t v = 0;
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) {
-        st.get(v);
-        if (debug) ::fprintf(stderr, "[SQL] -> %lld\n", static_cast<long long>(v));
-    } else if (debug) {
-        ::fprintf(stderr, "[SQL] -> (no row)\n");
-    }
-    return v;
-}
-
-template<Database D, class... B>
-std::string get_one_string(D& db, const char* sql, bool debug, B&&... b) {
-    if (debug) ::fprintf(stderr, "[SQL] %s\n", sql);
-    std::string v;
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) {
-        st.get(v);
-        if (debug) ::fprintf(stderr, "[SQL] -> '%s'\n", v.c_str());
-    } else if (debug) {
-        ::fprintf(stderr, "[SQL] -> (no row)\n");
-    }
-    return v;
-}
-
-template<Database D, class... B>
-double get_one_double(D& db, const char* sql, bool debug, B&&... b) {
-    if (debug) ::fprintf(stderr, "[SQL] %s\n", sql);
-    double v = 0.0;
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) {
-        st.get(v);
-        if (debug) ::fprintf(stderr, "[SQL] -> %g\n", v);
-    } else if (debug) {
-        ::fprintf(stderr, "[SQL] -> (no row)\n");
-    }
-    return v;
-}
-
-template<Database D, class... B>
-std::int64_t get_one_long_or(D& db, const char* sql, bool debug, std::int64_t deflt, B&&... b) {
+template<typename T, Database D, class... B>
+std::optional<T> top_one_row(D& db, const char* sql, bool debug, B&&... b) {
     if (debug) ::fprintf(stderr, "[SQL] %s\n", sql);
     auto st = db.prepare(sql);
     if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) {
-        std::int64_t v = 0; st.get(v);
-        if (debug) ::fprintf(stderr, "[SQL] -> %lld\n", static_cast<long long>(v));
-        return v;
+    if (!st.step()) {
+        if (debug) ::fprintf(stderr, "[SQL] -> (no row)\n");
+        return std::nullopt;
     }
-    if (debug) ::fprintf(stderr, "[SQL] -> (no row, using default %lld)\n", static_cast<long long>(deflt));
-    return deflt;
+    T v{};
+    st.get(v);
+    if (debug) ::fprintf(stderr, "[SQL] -> %s\n", debug_text(v).c_str());
+    return v;
 }
 
-template<Database D, class... B>
-std::string get_one_string_or(D& db, const char* sql, bool debug, std::string deflt, B&&... b) {
-    if (debug) ::fprintf(stderr, "[SQL] %s\n", sql);
-    auto st = db.prepare(sql);
-    if constexpr (sizeof...(B) > 0) st.bind(std::forward<B>(b)...);
-    if (st.step()) {
-        std::string v; st.get(v);
-        if (debug) ::fprintf(stderr, "[SQL] -> '%s'\n", v.c_str());
-        return v;
-    }
-    if (debug) ::fprintf(stderr, "[SQL] -> (no row, using default)\n");
-    return deflt;
+template<typename T, Database D, class... B>
+T get_top_one(D& db, const char* sql, B&&... b) {
+    return top_one_row<T>(db, sql, false, std::forward<B>(b)...).value_or(T{});
+}
+// `debug` takes only a real bool (std::same_as), so a text default such as "none" is never
+// taken for it (a const char* would otherwise convert to bool before it converts to std::string).
+template<typename T, Database D, std::same_as<bool> Debug, class... B>
+T get_top_one(D& db, const char* sql, Debug debug, B&&... b) {
+    return top_one_row<T>(db, sql, debug, std::forward<B>(b)...).value_or(T{});
+}
+template<typename T, Database D, class... B>
+T get_top_one_or(D& db, const char* sql, T deflt, B&&... b) {
+    return top_one_row<T>(db, sql, false, std::forward<B>(b)...).value_or(std::move(deflt));
+}
+template<typename T, Database D, std::same_as<bool> Debug, class... B>
+T get_top_one_or(D& db, const char* sql, Debug debug, T deflt, B&&... b) {
+    return top_one_row<T>(db, sql, debug, std::forward<B>(b)...).value_or(std::move(deflt));
+}
+template<typename T, Database D, class... B>
+T get_top_one_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one<T>(db, sql, true, std::forward<B>(b)...);
+}
+template<typename T, Database D, class... B>
+T get_top_one_or_debug(D& db, const char* sql, T deflt, B&&... b) {
+    return get_top_one_or<T>(db, sql, true, std::move(deflt), std::forward<B>(b)...);
 }
 
-// Convenience names that force debug=true
-template<Database D, class... B> inline std::int64_t get_one_long_debug(D& db, const char* sql, B&&... b) {
-    return get_one_long(db, sql, true, std::forward<B>(b)...);
+// The common types by name.
+template<Database D, class... B> std::int64_t get_top_one_long(D& db, const char* sql, B&&... b) {
+    return get_top_one<std::int64_t>(db, sql, std::forward<B>(b)...);
 }
-template<Database D, class... B> inline std::string get_one_string_debug(D& db, const char* sql, B&&... b) {
-    return get_one_string(db, sql, true, std::forward<B>(b)...);
+template<Database D, class... B> std::string get_top_one_string(D& db, const char* sql, B&&... b) {
+    return get_top_one<std::string>(db, sql, std::forward<B>(b)...);
 }
-template<Database D, class... B> inline double get_one_double_debug(D& db, const char* sql, B&&... b) {
-    return get_one_double(db, sql, true, std::forward<B>(b)...);
+template<Database D, class... B> double get_top_one_double(D& db, const char* sql, B&&... b) {
+    return get_top_one<double>(db, sql, std::forward<B>(b)...);
 }
-template<Database D, class... B> inline std::int64_t get_one_long_or_debug(D& db, const char* sql, std::int64_t deflt, B&&... b) {
-    return get_one_long_or(db, sql, true, deflt, std::forward<B>(b)...);
+template<Database D, class... B> bool get_top_one_bool(D& db, const char* sql, B&&... b) {
+    return get_top_one<bool>(db, sql, std::forward<B>(b)...);
 }
-template<Database D, class... B> inline std::string get_one_string_or_debug(D& db, const char* sql, std::string deflt, B&&... b) {
-    return get_one_string_or(db, sql, true, deflt, std::forward<B>(b)...);
+template<Database D, class... B> std::int64_t get_top_one_long_or(D& db, const char* sql, B&&... b) {
+    return get_top_one_or<std::int64_t>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> std::string get_top_one_string_or(D& db, const char* sql, B&&... b) {
+    return get_top_one_or<std::string>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> bool get_top_one_bool_or(D& db, const char* sql, B&&... b) {
+    return get_top_one_or<bool>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> std::int64_t get_top_one_long_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_debug<std::int64_t>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> std::string get_top_one_string_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_debug<std::string>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> double get_top_one_double_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_debug<double>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> bool get_top_one_bool_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_debug<bool>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> std::int64_t get_top_one_long_or_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_or_debug<std::int64_t>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> std::string get_top_one_string_or_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_or_debug<std::string>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> bool get_top_one_bool_or_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_or_debug<bool>(db, sql, std::forward<B>(b)...);
 }

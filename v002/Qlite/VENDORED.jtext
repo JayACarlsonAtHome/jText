@@ -23,11 +23,11 @@
 
 1. #|# 2|canonical_dir|Qlite/v002/Qlite
 
-1. #|# 3|canonical_commit|d621ae79233a
+1. #|# 3|canonical_commit|b06b34b8896a
 
 1. #|# 4|canonical_dirty|No
 
-1. #|# 5|canonical_version|v002.012
+1. #|# 5|canonical_version|v002.013
 
 1. #|# 6|transform|none
 
@@ -58,23 +58,23 @@
 
 
 === Data ===
-1. #|# 1|include/Qlite/v002.hpp|include/Qlite/v002.hpp|71261fba527aa1688e2f759666d8b070eb00d0d5c5737775b646953be6e1f7b1|71261fba527aa1688e2f759666d8b070eb00d0d5c5737775b646953be6e1f7b1
+1. #|# 1|include/Qlite/v002.hpp|include/Qlite/v002.hpp|7a8cc00784f52a7ccef1d596c5c9a97a970ce8150010e6d9cba84ca907bb522d|7a8cc00784f52a7ccef1d596c5c9a97a970ce8150010e6d9cba84ca907bb522d
 
-1. #|# 2|include/Qlite/v002/Database.body.hpp|include/Qlite/v002/Database.body.hpp|d836c6827e12426898fd0c965b558f6dd6e361fcf859fda298ca9b7ddbf4adb9|d836c6827e12426898fd0c965b558f6dd6e361fcf859fda298ca9b7ddbf4adb9
+1. #|# 2|include/Qlite/v002/Database.body.hpp|include/Qlite/v002/Database.body.hpp|54bec21e52cb73c5bb13b4af1782ed762f52039b2511800a13f1e6f0c29c8c30|54bec21e52cb73c5bb13b4af1782ed762f52039b2511800a13f1e6f0c29c8c30
 
-1. #|# 3|include/Qlite/v002/Database.hpp|include/Qlite/v002/Database.hpp|6da00052059d66018ed711f8917c2c208cb518bb2681fcd268a851730ec12bb5|6da00052059d66018ed711f8917c2c208cb518bb2681fcd268a851730ec12bb5
+1. #|# 3|include/Qlite/v002/Database.hpp|include/Qlite/v002/Database.hpp|8b92e7a5ce72114de4f9421bb012450faa0307632eaadd5ba59ba69ae84b9ba7|8b92e7a5ce72114de4f9421bb012450faa0307632eaadd5ba59ba69ae84b9ba7
 
 1. #|# 4|include/Qlite/v002/MariaDB.body.hpp|include/Qlite/v002/MariaDB.body.hpp|0a915efd29245bc656c9e3bde8adf04e6fa3dccf537fe5bf80d1dc5c6e12771f|0a915efd29245bc656c9e3bde8adf04e6fa3dccf537fe5bf80d1dc5c6e12771f
 
-1. #|# 5|include/Qlite/v002/MariaDB.hpp|include/Qlite/v002/MariaDB.hpp|42e47c209e2feb5eec1bd5a9d8d40cc7ecf6d95a41ed34bb4219e0a065fefdc6|42e47c209e2feb5eec1bd5a9d8d40cc7ecf6d95a41ed34bb4219e0a065fefdc6
+1. #|# 5|include/Qlite/v002/MariaDB.hpp|include/Qlite/v002/MariaDB.hpp|bc367f7531ca386391adb9a5bc807c5ab0bf8e3bf8678e999b7d2a3c1734c39f|bc367f7531ca386391adb9a5bc807c5ab0bf8e3bf8678e999b7d2a3c1734c39f
 
 1. #|# 6|include/Qlite/v002/Postgres.body.hpp|include/Qlite/v002/Postgres.body.hpp|499ad452dd50dd1a473b7c9c86712cfbb9b0bb060c5580cce46705406afb0232|499ad452dd50dd1a473b7c9c86712cfbb9b0bb060c5580cce46705406afb0232
 
-1. #|# 7|include/Qlite/v002/Postgres.hpp|include/Qlite/v002/Postgres.hpp|bce34f7ab0839db8143be538296fcd11384041d694cb91f97a1691c3fbb6f148|bce34f7ab0839db8143be538296fcd11384041d694cb91f97a1691c3fbb6f148
+1. #|# 7|include/Qlite/v002/Postgres.hpp|include/Qlite/v002/Postgres.hpp|6887bd6003c0156868a43ea7268d074ee5de766e36fbfbcd9b37d629e891378e|6887bd6003c0156868a43ea7268d074ee5de766e36fbfbcd9b37d629e891378e
 
-1. #|# 8|include/Qlite/v002/Sqlite.body.hpp|include/Qlite/v002/Sqlite.body.hpp|27465071e8a7dfabd44717c643347c8c5204bede521a7ac43ebd996729ed08ef|27465071e8a7dfabd44717c643347c8c5204bede521a7ac43ebd996729ed08ef
+1. #|# 8|include/Qlite/v002/Sqlite.body.hpp|include/Qlite/v002/Sqlite.body.hpp|d88fdfa8847fb8e8a961802759f5fe12d052b150dd6f2fe055356c29891a82f8|d88fdfa8847fb8e8a961802759f5fe12d052b150dd6f2fe055356c29891a82f8
 
-1. #|# 9|include/Qlite/v002/Sqlite.hpp|include/Qlite/v002/Sqlite.hpp|8c40283a6f8fd8a027dec021fdc3b1b534901822d0eb166f86428d2fb41509d8|8c40283a6f8fd8a027dec021fdc3b1b534901822d0eb166f86428d2fb41509d8
+1. #|# 9|include/Qlite/v002/Sqlite.hpp|include/Qlite/v002/Sqlite.hpp|a7077694947e8e7d77d05d51599cbe69dfd513957a0eea6fa66dfb9ddaffaa35|a7077694947e8e7d77d05d51599cbe69dfd513957a0eea6fa66dfb9ddaffaa35
 
 1. #|# 10|include/Qlite/v002/contracts.hpp|include/Qlite/v002/contracts.hpp|9e95e89e942c3428bc60d17f278e3611091d2b049925810e77848be0881091c3|9e95e89e942c3428bc60d17f278e3611091d2b049925810e77848be0881091c3
 

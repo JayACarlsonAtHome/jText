@@ -6,7 +6,7 @@
  *
  * Canonical evolution of the legacy jacQlite / jac::qlite header-only wrapper.
  * v002 is the C++26 frontier (v001 is the C++23 baseline). Public symbols: Sqlite, SqliteError, bind_value,
- * column; and from Database.hpp the Database concept, Error, version and get_one_*.
+ * column; and from Database.hpp the Database concept, Error, version and get_top_one_*.
  * Postgres.hpp and MariaDB.hpp give the same API over PostgreSQL and MariaDB.
  *
  * The implementation lives in Sqlite.body.hpp (an include-free fragment). This
@@ -16,7 +16,7 @@
  * are made visible. Keep declarations in the body file.
  */
 
-#include "Qlite/v002/Database.hpp"   // the concept, Error, Transaction, get_one_*
+#include "Qlite/v002/Database.hpp"   // the concept, Error, Transaction, get_top_one_*
 
 #include <sqlite3.h>
 
@@ -32,7 +32,7 @@
 #include <vector>
 #include <span>
 #include <unordered_map>
-#include <cstdio>     // fprintf in debug get_one_* helpers (also in Sqlite.body.hpp)
+#include <cstdio>     // fprintf in debug get_top_one_* helpers (also in Sqlite.body.hpp)
 #if __has_include(<expected>)
 #  include <expected>
 #endif
