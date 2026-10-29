@@ -7,6 +7,15 @@ project(jText_v002 VERSION 0.1.0 LANGUAGES CXX)
 # The compiled core (jtext_core) lives here; the public API is the global
 # namespace (::JTextWriter, ...), wrapped under jText::v002 by the umbrella.
 
+# Contracts (src/contracts.hpp): GCC 16 builds with NATIVE C++26 contracts, so JTEXT_PRE/POST/
+# ASSERT are contract_assert under the 'enforce' semantic (a violation terminates); other
+# compilers keep the macros' runtime checks. -fcontracts on the link line too, or gcc16
+# leaves out the default contract-violation handler.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+    add_compile_options(-fcontracts -fcontract-evaluation-semantic=enforce)
+    add_link_options(-fcontracts)
+endif()
+
 option(JTEXT_BUILD_EXAMPLES "Build example programs" ON)
 option(JTEXT_BUILD_TESTS "Build and register tests" ON)
 option(JTEXT_BUILD_MODULES "Build jText.v002 C++23 modules" OFF)

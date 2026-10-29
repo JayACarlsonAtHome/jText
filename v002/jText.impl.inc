@@ -912,15 +912,25 @@ void JTextWriter::set_filename(std::string_view name)
 {
     filename_ = std::filesystem::path(std::string(name)).filename().string();
 }
-void JTextWriter::set_date(std::string_view d) { date_ = d; }
-void JTextWriter::set_purpose(std::string_view p) { purpose_ = p; }
-void JTextWriter::set_case_mode(CaseMode mode) { case_mode_ = mode; case_set_ = true; }
-void JTextWriter::set_sql_dialect(std::string_view dialect) { sql_dialect_ = dialect; }
-void JTextWriter::set_table_name(std::string_view name) { table_name_ = name; }
-void JTextWriter::set_auto_id(bool enabled) { auto_id_ = enabled; auto_id_set_ = true; }
-void JTextWriter::set_header_comment(std::size_t number, std::string_view text) { header_comments_[number] = text; }
+// The header setters: the header is written once, so a value set after it would be lost.
+void JTextWriter::set_date(std::string_view d) { JTEXT_PRE(!header_written_); date_ = d; }
+void JTextWriter::set_purpose(std::string_view p) { JTEXT_PRE(!header_written_); purpose_ = p; }
+void JTextWriter::set_case_mode(CaseMode mode) { JTEXT_PRE(!header_written_); case_mode_ = mode; case_set_ = true; }
+void JTextWriter::set_sql_dialect(std::string_view dialect) { JTEXT_PRE(!header_written_); sql_dialect_ = dialect; }
+void JTextWriter::set_table_name(std::string_view name) { JTEXT_PRE(!header_written_); table_name_ = name; }
+void JTextWriter::set_auto_id(bool enabled) { JTEXT_PRE(!header_written_); auto_id_ = enabled; auto_id_set_ = true; }
+void JTextWriter::set_exact_header(bool exact) noexcept { JTEXT_PRE(!header_written_); exact_header_ = exact; }
+void JTextWriter::set_profile(JTextProfile profile) noexcept { JTEXT_PRE(!header_written_); profile_ = profile; }
+void JTextWriter::set_header_comment(std::size_t number, std::string_view text)
+{
+    JTEXT_PRE(!header_written_);
+    JTEXT_PRE(number >= 1 && number <= 8);   // header lines 1 filename ... 8 auto id
+    header_comments_[number] = text;
+}
 void JTextWriter::add_header_comment_line(std::size_t number, std::string_view text)
 {
+    JTEXT_PRE(!header_written_);
+    JTEXT_PRE(number <= 8);                  // before header line 1..8; 0 = after the last
     header_comment_lines_[number].emplace_back(text);
 }
 
@@ -1032,8 +1042,13 @@ void JTextWriter::close_full_section()
     section_open_ = false;
 }
 
+// The Full-profile blocks (include, template, Fields, Data) belong inside a Full-profile
+// section; a Light file has none of them, and nothing but records follows the Data block.
 void JTextWriter::write_include(std::string_view kind, std::string_view path)
 {
+    JTEXT_PRE(profile_ == JTextProfile::Full);
+    JTEXT_PRE(section_open_);
+    JTEXT_PRE(full_block_ != FullBlock::data);
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
@@ -1042,6 +1057,9 @@ void JTextWriter::write_include(std::string_view kind, std::string_view path)
 
 void JTextWriter::write_template(std::string_view name, std::string_view body, std::string_view comment)
 {
+    JTEXT_PRE(profile_ == JTextProfile::Full);
+    JTEXT_PRE(section_open_);
+    JTEXT_PRE(full_block_ != FullBlock::data);
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
@@ -1063,6 +1081,9 @@ void JTextWriter::write_template(std::string_view name, std::string_view body, s
 
 void JTextWriter::begin_fields()
 {
+    JTEXT_PRE(profile_ == JTextProfile::Full);
+    JTEXT_PRE(section_open_);
+    JTEXT_PRE(full_block_ == FullBlock::none && !fields_written_);   // one Fields block, before Data
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
@@ -1081,6 +1102,9 @@ void JTextWriter::end_fields()
 
 void JTextWriter::begin_data()
 {
+    JTEXT_PRE(profile_ == JTextProfile::Full);
+    JTEXT_PRE(section_open_);
+    JTEXT_PRE(full_block_ != FullBlock::data);
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;

@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v002 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v002 stays until a real (breaking) change, then
 // this becomes "v002.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.024"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.025"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -130,7 +130,7 @@ public:
     // Full profile: write only the header lines that were set (and the version line), not
     // today's date and the default Case and auto id. For a writer that copies a header it
     // read, such as an import (jtext_from_xml), so the copy declares what the source did.
-    void set_exact_header(bool exact) noexcept { exact_header_ = exact; }
+    void set_exact_header(bool exact) noexcept;
     // Full profile: the comment on header line `number` (1 filename ... 8 auto id), and
     // the comment lines standing before it (number 0: after the last header line).
     void set_header_comment(std::size_t number, std::string_view text);
@@ -155,7 +155,7 @@ public:
     [[nodiscard]] std::optional<std::int64_t> last_record_id() const noexcept { return last_record_id_; }
 
     // The profile written (SPEC 2.0): Light (the default) or Full. Set it before the header.
-    void set_profile(JTextProfile profile) noexcept { profile_ = profile; }
+    void set_profile(JTextProfile profile) noexcept;
 
     // Light: the "#" metadata block. Full: "=== jText File ===" and the numbered header
     // lines (SPEC 2.3: filename, date, purpose, jtext_version, case_mode, sql_dialect,

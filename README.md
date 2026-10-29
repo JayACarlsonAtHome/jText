@@ -245,6 +245,11 @@ jText is currently in **specification development**. The format itself is stable
 - `v00x/Qlite` — [Qlite](https://github.com/JayACarlsonAtHome/Qlite), one SQL API over SQLite,
   PostgreSQL and MariaDB, brought in from its own repository (see its `VENDORED.jtext`); the
   database tools read through it
+- Contracts (`v00x/src/contracts.hpp`, `JTEXT_PRE/POST/ASSERT`): calling `JTextWriter` out of
+  order — a header setter after the header, a Full-profile block (include, template, Fields,
+  Data) in a Light file, outside a section or after the Data block — ends the program. With
+  GCC 16, v002 builds with `-fcontracts` and these are native C++26 contracts; elsewhere they
+  are runtime checks
 
 If you're interested in the format itself — to implement a parser, write a tool, or just give feedback — the spec is the authoritative document. If you want to use jText for real work today, expect rough edges in the tooling.
 

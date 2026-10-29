@@ -2,6 +2,7 @@
 #include "parser/line.hpp"
 #include "parser/section.hpp"
 #include "parser/utf8.hpp"
+#include "contracts.hpp"   // JTEXT_PRE/POST/ASSERT
 #include <charconv>
 #include <filesystem>
 #include <optional>
