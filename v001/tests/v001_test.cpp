@@ -16,14 +16,15 @@ static_assert(jText::v001::version() == "v001.014", "v001 version");
 #include <sstream>
 #include <string>
 #include <vector>
+#include <source_location>
+#include <string_view>
 
-#define CHECK(cond) \
-    do { \
-        if (!(cond)) { \
-            std::cerr << "FAIL: " #cond " at " << __FILE__ << ":" << __LINE__ << "\n"; \
-            return EXIT_FAILURE; \
-        } \
-    } while (0)
+// A failed check says what and where, and ends the test.
+void check(bool ok, std::string_view what, std::source_location at = std::source_location::current()) {
+    if (ok) return;
+    std::cerr << "FAIL: " << what << " at " << at.file_name() << ":" << at.line() << "\n";
+    std::exit(EXIT_FAILURE);
+}
 
 namespace {
 
@@ -64,11 +65,11 @@ int main() {
     writer.finalize();
 
     const std::string text = out.str();
-    CHECK(text.find("jac313 smoke") != std::string::npos);
-    CHECK(text.find("jac313") != std::string::npos);
+    check(text.find("jac313 smoke") != std::string::npos, "text.find(\"jac313 smoke\") != std::string::npos");
+    check(text.find("jac313") != std::string::npos, "text.find(\"jac313\") != std::string::npos");
 
-    CHECK(jText::v001::JTextProfile::Light != jText::v001::JTextProfile::Full);
-    CHECK(jText::v001::jtext_line_pad_width_for_count(10) >= 1);
+    check(jText::v001::JTextProfile::Light != jText::v001::JTextProfile::Full, "jText::v001::JTextProfile::Light != jText::v001::JTextProfile::Full");
+    check(jText::v001::jtext_line_pad_width_for_count(10) >= 1, "jText::v001::jtext_line_pad_width_for_count(10) >= 1");
 
     // ─── record id generation (SPEC 2.6.4): field 1 is made when the source has none ───
     {
@@ -81,12 +82,12 @@ int main() {
         w.append_entry(compact("10", "c"));           // given  -> 10 (noted)
         w.append_entry(compact(std::nullopt, "d"));   // continues past 10 -> 11
         w.append_row(1, {std::string{}, "e"}, "", '|');  // append_row path -> 12
-        CHECK(w.last_record_id() == 12);
+        check(w.last_record_id() == 12, "w.last_record_id() == 12");
         w.begin_section("B");                           // ids restart per section
         w.append_entry(compact(std::nullopt, "f"));   // -> 1
         w.finalize();
         const auto ids = ids_in(o.str());
-        CHECK((ids == std::vector<std::string>{"1", "2", "10", "11", "12", "1"}));
+        check((ids == std::vector<std::string>{"1", "2", "10", "11", "12", "1"}), "(ids == std::vector<std::string>{\"1\", \"2\", \"10\", \"11\", \"12\", \"1\"})");
     }
     {
         // Identity(100,5), with auto-batching on (the batched path must agree).
@@ -98,7 +99,7 @@ int main() {
         w.set_record_id_start(100, 5);
         for (int i = 0; i < 3; ++i) w.append_entry(compact(std::nullopt, "x"));
         w.finalize();
-        CHECK((ids_in(o.str()) == std::vector<std::string>{"100", "105", "110"}));
+        check((ids_in(o.str()) == std::vector<std::string>{"100", "105", "110"}), "(ids_in(o.str()) == std::vector<std::string>{\"100\", \"105\", \"110\"})");
     }
     {
         // Identity(-1,-1): a negative step counts down and continues below the smallest id.
@@ -111,7 +112,7 @@ int main() {
         w.append_entry(compact("-7", "y"));           // given
         w.append_entry(compact(std::nullopt, "z"));   // -8
         w.finalize();
-        CHECK((ids_in(o.str()) == std::vector<std::string>{"-1", "-7", "-8"}));
+        check((ids_in(o.str()) == std::vector<std::string>{"-1", "-7", "-8"}), "(ids_in(o.str()) == std::vector<std::string>{\"-1\", \"-7\", \"-8\"})");
     }
     {
         // Lines for other field positions are never touched.
@@ -125,8 +126,8 @@ int main() {
         f2.fields = {std::nullopt};
         w.append_entry(f2);
         w.finalize();
-        CHECK(!w.last_record_id().has_value());
-        CHECK(o.str().find("2. |\xE2\x96\x8C \x1F") != std::string::npos);
+        check(!w.last_record_id().has_value(), "!w.last_record_id().has_value()");
+        check(o.str().find("2. |\xE2\x96\x8C \x1F") != std::string::npos, "o.str().find(\"2. |\\xE2\\x96\\x8C \\x1F\") != std::string::npos");
     }
 
     {
@@ -143,19 +144,19 @@ int main() {
             w.finalize();
         }
         JTextFile f;
-        CHECK(f.read_full(path.string()).has_value());
-        CHECK(f.case_mode == CaseMode::Insensitive);
+        check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
+        check(f.case_mode == CaseMode::Insensitive, "f.case_mode == CaseMode::Insensitive");
         bool kept = false;
         for (const auto& sec : f.sections)
             for (const auto& e : sec.entries)
                 for (const auto& fld : e.fields)
                     if (fld && *fld == "Hammer") kept = true;
-        CHECK(kept);
+        check(kept, "kept");
         std::filesystem::remove(path);
-        CHECK(text_equal("Hammer", "HAMMER", CaseMode::Insensitive));
-        CHECK(!text_equal("Hammer", "HAMMER", CaseMode::Sensitive));
-        CHECK(text_equal("Hammer", "Hammer", CaseMode::Sensitive));
-        CHECK(!text_equal("Hammer", "Hammers", CaseMode::Insensitive));
+        check(text_equal("Hammer", "HAMMER", CaseMode::Insensitive), "text_equal(\"Hammer\", \"HAMMER\", CaseMode::Insensitive)");
+        check(!text_equal("Hammer", "HAMMER", CaseMode::Sensitive), "!text_equal(\"Hammer\", \"HAMMER\", CaseMode::Sensitive)");
+        check(text_equal("Hammer", "Hammer", CaseMode::Sensitive), "text_equal(\"Hammer\", \"Hammer\", CaseMode::Sensitive)");
+        check(!text_equal("Hammer", "Hammers", CaseMode::Insensitive), "!text_equal(\"Hammer\", \"Hammers\", CaseMode::Insensitive)");
     }
 
     {
@@ -182,15 +183,15 @@ int main() {
             }
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            CHECK(text.find("1. |^ 6|C # sharp ^ safe comment") != std::string::npos);
+            check(text.find("1. |^ 6|C # sharp ^ safe comment") != std::string::npos, "text.find(\"1. |^ 6|C # sharp ^ safe comment\") != std::string::npos");
             JTextFile f;
-            CHECK(f.read_full(path.string()).has_value());
+            check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
             bool found = false;
             for (const auto& sec : f.sections)
                 for (const auto& r : sec.entries)
                     if (r.fields.size() == 2 && r.fields[1] && *r.fields[1] == "C # sharp"
                         && r.comment == "safe comment") found = true;
-            CHECK(found);
+            check(found, "found");
             std::filesystem::remove(path);
         }
     }
@@ -231,16 +232,16 @@ int main() {
             }
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            for (const auto& c : cases) CHECK(text.find(c.line) != std::string::npos);
+            for (const auto& c : cases) check(text.find(c.line) != std::string::npos, "text.find(c.line) != std::string::npos");
             JTextFile f;
-            CHECK(f.read_full(path.string()).has_value());
+            check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
             std::size_t matched = 0;
             for (const auto& sec : f.sections)
                 for (const auto& r : sec.entries)
                     for (const auto& c : cases)
                         if (r.fields.size() == 2 && r.fields[0] && *r.fields[0] == c.fields[0]
                             && r.fields[1] && *r.fields[1] == c.fields[1] && r.comment == "note") ++matched;
-            CHECK(matched == cases.size());
+            check(matched == cases.size(), "matched == cases.size()");
             std::filesystem::remove(path);
         }
     }
@@ -262,9 +263,9 @@ int main() {
                 w.append_row(1, {std::string("2"), pipe}, "", '|');
                 w.append_row(1, {std::string("3"), mark}, "", '|');
                 w.finalize();
-                CHECK(w.skipped_rows() == 1);
-                CHECK(o.str().find("1. |\xE2\x96\x8C 1|") != std::string::npos);
-                CHECK(o.str().find("1. |# 3|" + mark) != std::string::npos);
+                check(w.skipped_rows() == 1, "w.skipped_rows() == 1");
+                check(o.str().find("1. |\xE2\x96\x8C 1|") != std::string::npos, "o.str().find(\"1. |\\xE2\\x96\\x8C 1|\") != std::string::npos");
+                check(o.str().find("1. |# 3|" + mark) != std::string::npos, "o.str().find(\"1. |# 3|\" + mark) != std::string::npos");
             }
         }
     }
@@ -279,7 +280,7 @@ int main() {
         w.begin_section("CommentSep");
         w.append_row(1, {std::string("1"), std::string("a")}, "", U'\u258C');
         w.finalize();
-        CHECK(o.str().find("1. \xE2\x96\x8C# 1\xE2\x96\x8C" "a") != std::string::npos);
+        check(o.str().find("1. \xE2\x96\x8C# 1\xE2\x96\x8C" "a") != std::string::npos, "o.str().find(\"1. \\xE2\\x96\\x8C# 1\\xE2\\x96\\x8C\" \"a\") != std::string::npos");
     }
 
     {
@@ -287,9 +288,9 @@ int main() {
         // empty values are kept (the writer's exact inverse); in a hierarchy an empty
         // level is an error.
         auto fields = jtext::parse_line("1. |# a||b|", jtext::split_rule::fields);
-        CHECK(fields.has_value());
-        CHECK((fields->hierarchy == std::vector<std::string>{"a", "", "b", ""}));
-        CHECK(!jtext::parse_line("1. |# a||b|").has_value());
+        check(fields.has_value(), "fields.has_value()");
+        check((fields->hierarchy == std::vector<std::string>{"a", "", "b", ""}), "(fields->hierarchy == std::vector<std::string>{\"a\", \"\", \"b\", \"\"})");
+        check(!jtext::parse_line("1. |# a||b|").has_value(), "!jtext::parse_line(\"1. |# a||b|\").has_value()");
 
         using namespace jText::v001;
         const auto path = std::filesystem::temp_directory_path() / "jtext_one_parser_test.jtext";
@@ -305,15 +306,15 @@ int main() {
                << "=== End Data ===\n=== End Section ===\n=== End File ===\n";
         }
         JTextFile f;
-        CHECK(f.read_full(path.string()).has_value());
-        CHECK(f.sections.size() == 1);
+        check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
+        check(f.sections.size() == 1, "f.sections.size() == 1");
         const auto& rows = f.sections[0].entries;
-        CHECK(rows.size() == 4);
-        CHECK(rows[0].fields.size() == 3 && rows[0].fields[2] && rows[0].fields[2]->empty());
-        CHECK(rows[1].fields.size() == 4 && rows[1].fields[1]->empty() && !rows[1].fields[3].has_value());
-        CHECK(rows[2].fields.size() == 4 && *rows[2].fields[3] == "c" && rows[2].comment == "first # second");
-        CHECK(rows[3].fields.size() == 2 && *rows[3].fields[1] == "a|b # c" && rows[3].comment == "v0.8 formatter");
-        CHECK(rows[3].level_sep == U'\u25AE' && rows[3].delimiter == U'\u258C');
+        check(rows.size() == 4, "rows.size() == 4");
+        check(rows[0].fields.size() == 3 && rows[0].fields[2] && rows[0].fields[2]->empty(), "rows[0].fields.size() == 3 && rows[0].fields[2] && rows[0].fields[2]->empty()");
+        check(rows[1].fields.size() == 4 && rows[1].fields[1]->empty() && !rows[1].fields[3].has_value(), "rows[1].fields.size() == 4 && rows[1].fields[1]->empty() && !rows[1].fields[3].has_value()");
+        check(rows[2].fields.size() == 4 && *rows[2].fields[3] == "c" && rows[2].comment == "first # second", "rows[2].fields.size() == 4 && *rows[2].fields[3] == \"c\" && rows[2].comment == \"first # second\"");
+        check(rows[3].fields.size() == 2 && *rows[3].fields[1] == "a|b # c" && rows[3].comment == "v0.8 formatter", "rows[3].fields.size() == 2 && *rows[3].fields[1] == \"a|b # c\" && rows[3].comment == \"v0.8 formatter\"");
+        check(rows[3].level_sep == U'\u25AE' && rows[3].delimiter == U'\u258C', "rows[3].level_sep == U'\\u25AE' && rows[3].delimiter == U'\\u258C'");
         std::filesystem::remove(path);
     }
 
@@ -334,13 +335,13 @@ int main() {
             w.finalize();
         }
         JTextFile f;
-        CHECK(f.read_full(path.string()).has_value());
+        check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
         const auto& r = f.sections.at(0).entries.at(0);
-        CHECK(r.fields.size() == 5);
-        CHECK(r.fields[1] && r.fields[1]->empty());
-        CHECK(!r.fields[2].has_value());
-        CHECK(r.fields[3] && *r.fields[3] == "x");
-        CHECK(r.fields[4] && r.fields[4]->empty());
+        check(r.fields.size() == 5, "r.fields.size() == 5");
+        check(r.fields[1] && r.fields[1]->empty(), "r.fields[1] && r.fields[1]->empty()");
+        check(!r.fields[2].has_value(), "!r.fields[2].has_value()");
+        check(r.fields[3] && *r.fields[3] == "x", "r.fields[3] && *r.fields[3] == \"x\"");
+        check(r.fields[4] && r.fields[4]->empty(), "r.fields[4] && r.fields[4]->empty()");
         std::filesystem::remove(path);
     }
 
@@ -356,46 +357,46 @@ int main() {
         w.append_row(1, {std::string("2026-10-28")});
         w.append_row(1, {std::string("a\xE2\x96\xAE"), std::string("b")});
         w.finalize();
-        CHECK(o.str().find("1. \xE2\x96\xAE\xE2\x96\x8C Hammer\xE2\x96\xAEMixed Case") != std::string::npos);
-        CHECK(o.str().find("1. \xE2\x96\xAE\xE2\x96\x8C 2026-10-28") != std::string::npos);
-        CHECK(o.str().find("1. ^\xE2\x96\x8C a\xE2\x96\xAE^b") != std::string::npos);
-        CHECK(o.str().find('\0') == std::string::npos);
+        check(o.str().find("1. \xE2\x96\xAE\xE2\x96\x8C Hammer\xE2\x96\xAEMixed Case") != std::string::npos, "o.str().find(\"1. \\xE2\\x96\\xAE\\xE2\\x96\\x8C Hammer\\xE2\\x96\\xAEMixed Case\") != std::string::npos");
+        check(o.str().find("1. \xE2\x96\xAE\xE2\x96\x8C 2026-10-28") != std::string::npos, "o.str().find(\"1. \\xE2\\x96\\xAE\\xE2\\x96\\x8C 2026-10-28\") != std::string::npos");
+        check(o.str().find("1. ^\xE2\x96\x8C a\xE2\x96\xAE^b") != std::string::npos, "o.str().find(\"1. ^\\xE2\\x96\\x8C a\\xE2\\x96\\xAE^b\") != std::string::npos");
+        check(o.str().find('\0') == std::string::npos, "o.str().find('\\0') == std::string::npos");
     }
 
     {
         // SPEC v0.8: a formatter character is any Unicode punctuation or symbol.
-        CHECK(jtext::is_valid_formatter_char(U'\u25AE') && jtext::is_valid_formatter_char(U'\u258C'));
-        CHECK(jtext::is_valid_formatter_char(U'|') && jtext::is_valid_formatter_char(U'\u20AC'));   // | and the euro sign
-        CHECK(!jtext::is_valid_formatter_char(U'a') && !jtext::is_valid_formatter_char(U'\u00E9')); // letters
-        CHECK(!jtext::is_valid_formatter_char(U'7') && !jtext::is_valid_formatter_char(U' '));
-        CHECK(!jtext::is_valid_formatter_char(U'\u00A0') && !jtext::is_valid_formatter_char(U'\u200D')); // NBSP, ZWJ
-        CHECK(!jtext::is_valid_formatter_char(U'\u0301'));                                            // combining mark
+        check(jtext::is_valid_formatter_char(U'\u25AE') && jtext::is_valid_formatter_char(U'\u258C'), "jtext::is_valid_formatter_char(U'\\u25AE') && jtext::is_valid_formatter_char(U'\\u258C')");
+        check(jtext::is_valid_formatter_char(U'|') && jtext::is_valid_formatter_char(U'\u20AC'), "jtext::is_valid_formatter_char(U'|') && jtext::is_valid_formatter_char(U'\\u20AC')");   // | and the euro sign
+        check(!jtext::is_valid_formatter_char(U'a') && !jtext::is_valid_formatter_char(U'\u00E9'), "!jtext::is_valid_formatter_char(U'a') && !jtext::is_valid_formatter_char(U'\\u00E9')"); // letters
+        check(!jtext::is_valid_formatter_char(U'7') && !jtext::is_valid_formatter_char(U' '), "!jtext::is_valid_formatter_char(U'7') && !jtext::is_valid_formatter_char(U' ')");
+        check(!jtext::is_valid_formatter_char(U'\u00A0') && !jtext::is_valid_formatter_char(U'\u200D'), "!jtext::is_valid_formatter_char(U'\\u00A0') && !jtext::is_valid_formatter_char(U'\\u200D')"); // NBSP, ZWJ
+        check(!jtext::is_valid_formatter_char(U'\u0301'), "!jtext::is_valid_formatter_char(U'\\u0301')");                                            // combining mark
 
         auto both = [](std::string_view line) {
             return std::pair{jtext::parse_line(line, jtext::split_rule::fields), jtext::parse_line(line)};
         };
         auto [f, h] = both("1. \u25AE\u258C 1\u25AEcmd | grep T\u25AElaunch # 3 \u258C a note");
-        CHECK(f && h);
-        CHECK((f->hierarchy == std::vector<std::string>{"1", "cmd | grep T", "launch # 3"}));
-        CHECK(f->comment == "a note" && h->hierarchy == f->hierarchy);
-        CHECK(f->fmt.separator == U'\u25AE' && f->fmt.bookend == U'\u258C');
+        check(f && h, "f && h");
+        check((f->hierarchy == std::vector<std::string>{"1", "cmd | grep T", "launch # 3"}), "(f->hierarchy == std::vector<std::string>{\"1\", \"cmd | grep T\", \"launch # 3\"})");
+        check(f->comment == "a note" && h->hierarchy == f->hierarchy, "f->comment == \"a note\" && h->hierarchy == f->hierarchy");
+        check(f->fmt.separator == U'\u25AE' && f->fmt.bookend == U'\u258C', "f->fmt.separator == U'\\u25AE' && f->fmt.bookend == U'\\u258C'");
 
         const auto empty = jtext::parse_line("1. \u25AE\u258C a\u25AE\u25AEb\u25AE", jtext::split_rule::fields);
-        CHECK(empty && (empty->hierarchy == std::vector<std::string>{"a", "", "b", ""}));
+        check(empty && (empty->hierarchy == std::vector<std::string>{"a", "", "b", ""}), "empty && (empty->hierarchy == std::vector<std::string>{\"a\", \"\", \"b\", \"\"})");
 
         const auto legacy = jtext::parse_line("1. \u258C\u25AE\u258C x\u25AEy");    // old three-character form
-        CHECK(legacy && legacy->fmt.separator == U'\u25AE' && legacy->fmt.bookend == U'\u258C');
+        check(legacy && legacy->fmt.separator == U'\u25AE' && legacy->fmt.bookend == U'\u258C', "legacy && legacy->fmt.separator == U'\\u25AE' && legacy->fmt.bookend == U'\\u258C'");
 
         auto fails = [](std::string_view line, jtext::parse_error_kind kind) {
             const auto r = jtext::parse_line(line);
             return !r && r.error().kind == kind;
         };
-        CHECK(fails("1. \u25AEa x", jtext::parse_error_kind::formatter_too_short));          // letter
-        CHECK(fails("1. \u25AE\u0301 x", jtext::parse_error_kind::formatter_too_short));    // combining mark
-        CHECK(fails("1. \u25AE\u200D x", jtext::parse_error_kind::formatter_too_short));    // zero-width joiner
-        CHECK(fails("1. \u25AE\u25AE x", jtext::parse_error_kind::formatter_separator_equals_bookend));
-        CHECK(fails("1. \xE2\x96 x", jtext::parse_error_kind::invalid_utf8));                // truncated
-        CHECK(fails("1. \xC0\xBC| x", jtext::parse_error_kind::invalid_utf8));               // overlong '<'
+        check(fails("1. \u25AEa x", jtext::parse_error_kind::formatter_too_short), "fails(\"1. \\u25AEa x\", jtext::parse_error_kind::formatter_too_short)");          // letter
+        check(fails("1. \u25AE\u0301 x", jtext::parse_error_kind::formatter_too_short), "fails(\"1. \\u25AE\\u0301 x\", jtext::parse_error_kind::formatter_too_short)");    // combining mark
+        check(fails("1. \u25AE\u200D x", jtext::parse_error_kind::formatter_too_short), "fails(\"1. \\u25AE\\u200D x\", jtext::parse_error_kind::formatter_too_short)");    // zero-width joiner
+        check(fails("1. \u25AE\u25AE x", jtext::parse_error_kind::formatter_separator_equals_bookend), "fails(\"1. \\u25AE\\u25AE x\", jtext::parse_error_kind::formatter_separator_equals_bookend)");
+        check(fails("1. \xE2\x96 x", jtext::parse_error_kind::invalid_utf8), "fails(\"1. \\xE2\\x96 x\", jtext::parse_error_kind::invalid_utf8)");                // truncated
+        check(fails("1. \xC0\xBC| x", jtext::parse_error_kind::invalid_utf8), "fails(\"1. \\xC0\\xBC| x\", jtext::parse_error_kind::invalid_utf8)");               // overlong '<'
 
         // The writer emits the code points it is given, and the reader gets them back.
         using namespace jText::v001;
@@ -418,15 +419,15 @@ int main() {
             w.finalize();
             skipped = w.skipped_rows();
         }
-        CHECK(skipped == 1);
+        check(skipped == 1, "skipped == 1");
         std::ifstream fi(path);
         const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-        CHECK(text.find("1. \u25AE\u258C 1\u25AEa|b # c\u25AEx \u258C note") != std::string::npos);
+        check(text.find("1. \u25AE\u258C 1\u25AEa|b # c\u25AEx \u258C note") != std::string::npos, "text.find(\"1. \\u25AE\\u258C 1\\u25AEa|b # c\\u25AEx \\u258C note\") != std::string::npos");
         JTextFile file;
-        CHECK(file.read_full(path.string()).has_value());
+        check(file.read_full(path.string()).has_value(), "file.read_full(path.string()).has_value()");
         const auto& r = file.sections.at(0).entries.at(0);
-        CHECK(r.fields.size() == 3 && *r.fields[1] == "a|b # c" && r.comment == "note");
-        CHECK(r.level_sep == U'\u25AE' && r.delimiter == U'\u258C');
+        check(r.fields.size() == 3 && *r.fields[1] == "a|b # c" && r.comment == "note", "r.fields.size() == 3 && *r.fields[1] == \"a|b # c\" && r.comment == \"note\"");
+        check(r.level_sep == U'\u25AE' && r.delimiter == U'\u258C', "r.level_sep == U'\\u25AE' && r.delimiter == U'\\u258C'");
         std::filesystem::remove(path);
     }
 
@@ -438,10 +439,10 @@ int main() {
             "=== <#include#> Fields: f.jtFlds ===\n"
             "1. |# 1|a|b\n"
             "=== End Section ===\n=== End File ===\n");
-        CHECK(!banner_less.has_value());
+        check(!banner_less.has_value(), "!banner_less.has_value()");
         const auto top_level = jtext::parse_file_structure(
             "=== <#include#> Fields: f.jtFlds ===\n1. |# 1|a|b\n");
-        CHECK(!top_level.has_value());
+        check(!top_level.has_value(), "!top_level.has_value()");
 
         const auto file = jtext::parse_file_structure(
             "=== jText File ===\n 1. ?# banner\n\n=== Section: s ===\n"
@@ -450,13 +451,13 @@ int main() {
             "1. |# 1|a|b\n\n"
             "1. \u25AE\u258C 2\u25AEc|d\u25AEe\n"
             "=== End Data ===\n=== End Section ===\n=== End File ===\n");
-        CHECK(file.has_value());
-        CHECK(file->sections.size() == 1);
+        check(file.has_value(), "file.has_value()");
+        check(file->sections.size() == 1, "file->sections.size() == 1");
         const auto& lines = file->sections[0].data_lines;
         std::size_t rows = 0;
         for (const auto& pl : lines) if (pl.number != 0) ++rows;
-        CHECK(rows == 2);
-        CHECK(lines.back().hierarchy == (std::vector<std::string>{"2", "c|d", "e"}));
+        check(rows == 2, "rows == 2");
+        check(lines.back().hierarchy == (std::vector<std::string>{"2", "c|d", "e"}), "lines.back().hierarchy == (std::vector<std::string>{\"2\", \"c|d\", \"e\"})");
     }
 
     {
@@ -476,15 +477,15 @@ int main() {
         }
         std::ifstream fi(path);
         const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-        CHECK(text.find("-- A --") < text.find("-- End A --"));
-        CHECK(text.find("-- End A --") < text.find("-- B --"));
-        CHECK(text.find("-- B --") < text.find("-- End B --"));
-        CHECK(text.find("-- End B --") < text.find("-- EOF --"));
+        check(text.find("-- A --") < text.find("-- End A --"), "text.find(\"-- A --\") < text.find(\"-- End A --\")");
+        check(text.find("-- End A --") < text.find("-- B --"), "text.find(\"-- End A --\") < text.find(\"-- B --\")");
+        check(text.find("-- B --") < text.find("-- End B --"), "text.find(\"-- B --\") < text.find(\"-- End B --\")");
+        check(text.find("-- End B --") < text.find("-- EOF --"), "text.find(\"-- End B --\") < text.find(\"-- EOF --\")");
         const auto strict = jtext::parse_file_structure(text);
-        CHECK(strict.has_value() && strict->sections.size() == 2);
+        check(strict.has_value() && strict->sections.size() == 2, "strict.has_value() && strict->sections.size() == 2");
         JTextFile f;
-        CHECK(f.read_full(path.string()).has_value());
-        CHECK(f.sections.size() == 2);
+        check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
+        check(f.sections.size() == 2, "f.sections.size() == 2");
         std::filesystem::remove(path);
     }
 
@@ -499,22 +500,22 @@ int main() {
             " 1. /# id/Identity(1,1)\n 2. /# v/String\n=== End Fields ===\n=== Data ===\n"
             "1. |# 1|a\n\n1. |# 2|b\n";
         const std::string closed = full + "=== End Data ===\n=== End Section ===\n=== End File ===\n";
-        CHECK(kind(closed) == "ok");
-        CHECK(kind(full) == "missing_closer");
-        CHECK(kind(full + "=== End Data ===\n=== End Section ===\n") == "missing_closer");
-        CHECK(kind(closed + "1. |# 3|c\n") == "unexpected_marker");          // after the file closed
+        check(kind(closed) == "ok", "kind(closed) == \"ok\"");
+        check(kind(full) == "missing_closer", "kind(full) == \"missing_closer\"");
+        check(kind(full + "=== End Data ===\n=== End Section ===\n") == "missing_closer", "kind(full + \"=== End Data ===\\n=== End Section ===\\n\") == \"missing_closer\"");
+        check(kind(closed + "1. |# 3|c\n") == "unexpected_marker", "kind(closed + \"1. |# 3|c\\n\") == \"unexpected_marker\"");          // after the file closed
         const std::string light = "# JText File - created x\n\n-- A --\n1. |# 1|a\n";
-        CHECK(kind(light + "-- End A --\n-- EOF --\n") == "ok");
-        CHECK(kind(light) == "missing_closer");
-        CHECK(kind(light + "-- End B --\n-- EOF --\n") == "unexpected_marker"); // closes the wrong section
+        check(kind(light + "-- End A --\n-- EOF --\n") == "ok", "kind(light + \"-- End A --\\n-- EOF --\\n\") == \"ok\"");
+        check(kind(light) == "missing_closer", "kind(light) == \"missing_closer\"");
+        check(kind(light + "-- End B --\n-- EOF --\n") == "unexpected_marker", "kind(light + \"-- End B --\\n-- EOF --\\n\") == \"unexpected_marker\""); // closes the wrong section
 
         // add_missing_closers puts each where its block ends; the next read works.
         auto cut = jtext::add_missing_closers(full);
-        CHECK(cut.added.size() == 3 && !cut.last_line_unterminated);
-        CHECK(cut.text == closed);
-        CHECK(kind(cut.text) == "ok");
+        check(cut.added.size() == 3 && !cut.last_line_unterminated, "cut.added.size() == 3 && !cut.last_line_unterminated");
+        check(cut.text == closed, "cut.text == closed");
+        check(kind(cut.text) == "ok", "kind(cut.text) == \"ok\"");
         const auto again = jtext::add_missing_closers(cut.text);
-        CHECK(again.added.empty() && again.text == cut.text);
+        check(again.added.empty() && again.text == cut.text, "again.added.empty() && again.text == cut.text");
 
         // Written before closers were required: End Fields before Data, a section
         // closed before the next one, the file at the end.
@@ -523,49 +524,49 @@ int main() {
             "=== Section: a ===\n=== Fields ===\n 1. /# id/Identity(1,1)\n=== Data ===\n1. |# 1\n\n"
             "=== Section: b ===\n=== Fields ===\n 1. /# id/Identity(1,1)\n=== Data ===\n1. |# 1\n";
         const auto fixed = jtext::add_missing_closers(old);
-        CHECK(fixed.added.size() == 7);
-        CHECK(kind(fixed.text) == "ok");
+        check(fixed.added.size() == 7, "fixed.added.size() == 7");
+        check(kind(fixed.text) == "ok", "kind(fixed.text) == \"ok\"");
         const auto old_light = jtext::add_missing_closers(
             "# JText File - created x\n-- A --\n1. |# 1|a\n\n-- B --\n1. |# 1|b");
-        CHECK(old_light.last_line_unterminated && old_light.added.size() == 3);
-        CHECK(kind(old_light.text) == "ok");
+        check(old_light.last_line_unterminated && old_light.added.size() == 3, "old_light.last_line_unterminated && old_light.added.size() == 3");
+        check(kind(old_light.text) == "ok", "kind(old_light.text) == \"ok\"");
 
         // Cut off inside a multiline value: its "*]" comes first, aligned with its lines.
         const auto ml = jtext::add_missing_closers(
             "# JText File - created x\n-- A --\n 1. [* # note\n    ** line one\n");
-        CHECK(ml.added.size() == 3 && ml.added[0].find("'*]'") != std::string::npos);
-        CHECK(ml.text.find("    ** line one\n    *]\n-- End A --\n-- EOF --\n") != std::string::npos);
-        CHECK(kind(ml.text) == "ok");
+        check(ml.added.size() == 3 && ml.added[0].find("'*]'") != std::string::npos, "ml.added.size() == 3 && ml.added[0].find(\"'*]'\") != std::string::npos");
+        check(ml.text.find("    ** line one\n    *]\n-- End A --\n-- EOF --\n") != std::string::npos, "ml.text.find(\" ** line one\\n *]\\n-- End A --\\n-- EOF --\\n\") != std::string::npos");
+        check(kind(ml.text) == "ok", "kind(ml.text) == \"ok\"");
 
         // A v0.7 "<<< SENTINEL" block is rewritten as a [* value, line for line: in a
         // data row it keeps its number; a template's opener is a bare "[*".
         const auto old_ml = jtext::add_missing_closers(
             "# JText File - created x\n-- A --\n 2. <<< END  # note\nline one\n\n  indented\nEND\n"
             "-- End A --\n-- EOF --\n");
-        CHECK(old_ml.text.find(" 2. [* # note\n    ** line one\n    **\n    **   indented\n    *]\n")
-              != std::string::npos);
-        CHECK(kind(old_ml.text) == "ok");
+        check(old_ml.text.find(" 2. [* # note\n    ** line one\n    **\n    **   indented\n    *]\n")
+              != std::string::npos, "old_ml.text.find(\" 2. [* # note\\n ** line one\\n **\\n ** indented\\n *]\\n\") != std::string::npos");
+        check(kind(old_ml.text) == "ok", "kind(old_ml.text) == \"ok\"");
         const auto old_tpl = jtext::add_missing_closers(
             "=== jText File ===\n 1. ?# t\n\n=== Section: s ===\n=== Template: T ===\n"
             " 1. <<< !!!T!!!\nINSERT {1};\n!!!T!!!\n=== Fields ===\n 1. /# id/Identity(1,1)\n"
             "=== End Fields ===\n=== Data ===\n1. |# 1\n=== End Data ===\n=== End Section ===\n"
             "=== End File ===\n");
-        CHECK(old_tpl.text.find("=== Template: T ===\n[*\n** INSERT {1};\n*]\n") != std::string::npos);
-        CHECK(kind(old_tpl.text) == "ok");
+        check(old_tpl.text.find("=== Template: T ===\n[*\n** INSERT {1};\n*]\n") != std::string::npos, "old_tpl.text.find(\"=== Template: T ===\\n[*\\n** INSERT {1};\\n*]\\n\") != std::string::npos");
+        check(kind(old_tpl.text) == "ok", "kind(old_tpl.text) == \"ok\"");
     }
 
     {
         // Multiline values (SPEC v0.8 Part C): "[*" opens, "** " lines, a bare "*]".
         using VK = jtext::value_line_kind;
         auto vl = [](std::string_view line) { return jtext::parse_value_line(line); };
-        CHECK(vl("    ** text")->kind == VK::content && vl("    ** text")->text == "text");
-        CHECK(vl("**   indented")->text == "  indented");     // one space is the marker's
-        CHECK(vl("**")->kind == VK::content && vl("**")->text.empty());
-        CHECK(vl("** ")->text.empty());
-        CHECK(vl("** trailing  ")->text == "trailing  ");     // verbatim
-        CHECK(vl("\t*]")->kind == VK::closer && vl("*]  ")->kind == VK::closer);
-        CHECK(vl(" 7. |# x")->kind == VK::other);
-        CHECK(!vl("**x").has_value() && !vl("*] more").has_value());
+        check(vl("    ** text")->kind == VK::content && vl("    ** text")->text == "text", "vl(\" ** text\")->kind == VK::content && vl(\" ** text\")->text == \"text\"");
+        check(vl("**   indented")->text == "  indented", "vl(\"** indented\")->text == \" indented\"");     // one space is the marker's
+        check(vl("**")->kind == VK::content && vl("**")->text.empty(), "vl(\"**\")->kind == VK::content && vl(\"**\")->text.empty()");
+        check(vl("** ")->text.empty(), "vl(\"** \")->text.empty()");
+        check(vl("** trailing  ")->text == "trailing  ", "vl(\"** trailing \")->text == \"trailing \"");     // verbatim
+        check(vl("\t*]")->kind == VK::closer && vl("*]  ")->kind == VK::closer, "vl(\"\\t*]\")->kind == VK::closer && vl(\"*] \")->kind == VK::closer");
+        check(vl(" 7. |# x")->kind == VK::other, "vl(\" 7. |# x\")->kind == VK::other");
+        check(!vl("**x").has_value() && !vl("*] more").has_value(), "!vl(\"**x\").has_value() && !vl(\"*] more\").has_value()");
 
         auto kind = [](std::string_view text) {
             const auto r = jtext::parse_file_structure(text);
@@ -579,15 +580,15 @@ int main() {
             "    **   File \"main.py\" | # 12\n";
         const std::string tail = "=== End Data ===\n=== End Section ===\n=== End File ===\n";
         const auto file = jtext::parse_file_structure(head + "    *]\n" + tail);
-        CHECK(file.has_value());
-        CHECK(file->sections[0].templates[0].body == "INSERT INTO t VALUES ({1}, {2});");
-        CHECK(file->sections[0].templates[0].opener_comment == "one statement");
+        check(file.has_value(), "file.has_value()");
+        check(file->sections[0].templates[0].body == "INSERT INTO t VALUES ({1}, {2});", "file->sections[0].templates[0].body == \"INSERT INTO t VALUES ({1}, {2});\"");
+        check(file->sections[0].templates[0].opener_comment == "one statement", "file->sections[0].templates[0].opener_comment == \"one statement\"");
         const auto& value = file->sections[0].data_lines.back();
-        CHECK(value.kind == jtext::line_kind::multiline_opener && value.comment == "from worker 3");
-        CHECK(value.hierarchy == (std::vector<std::string>{"Traceback:\n\n  File \"main.py\" | # 12"}));
-        CHECK(kind(head) == "missing_closer");                      // end of file
-        CHECK(kind(head + tail) == "missing_closer");               // a marker
-        CHECK(kind(head + "\n    *]\n" + tail) == "missing_closer"); // a blank line is not "**"
+        check(value.kind == jtext::line_kind::multiline_opener && value.comment == "from worker 3", "value.kind == jtext::line_kind::multiline_opener && value.comment == \"from worker 3\"");
+        check(value.hierarchy == (std::vector<std::string>{"Traceback:\n\n  File \"main.py\" | # 12"}), "value.hierarchy == (std::vector<std::string>{\"Traceback:\\n\\n File \\\"main.py\\\" | # 12\"})");
+        check(kind(head) == "missing_closer", "kind(head) == \"missing_closer\"");                      // end of file
+        check(kind(head + tail) == "missing_closer", "kind(head + tail) == \"missing_closer\"");               // a marker
+        check(kind(head + "\n    *]\n" + tail) == "missing_closer", "kind(head + \"\\n *]\\n\" + tail) == \"missing_closer\""); // a blank line is not "**"
 
         // The writer: a field with a newline becomes an aligned [* value, the row
         // breaking around it; its '|' and '#' are not separators or comments there.
@@ -606,29 +607,29 @@ int main() {
             }
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            CHECK(text.find(" 1. |\xE2\x96\x8C 1 \xE2\x96\x8C note\n"
+            check(text.find(" 1. |\xE2\x96\x8C 1 \xE2\x96\x8C note\n"
                             " 2. [*\n"
                             "    ** line one | # x\n"
                             "    **   indented\n"
                             "    **\n"
                             "    ** last\n"
                             "    *]\n"
-                            " 3. |\xE2\x96\x8C tail\n") != std::string::npos);
+                            " 3. |\xE2\x96\x8C tail\n") != std::string::npos, "text.find(\" 1. |\\xE2\\x96\\x8C 1 \\xE2\\x96\\x8C note\\n\" \" 2. [*\\n\" \" ** line one | # x\\n\" \" ** indented\\n\" \" **\\n\" \" ** last\\n\" \" *]\\n\" \" 3. |\\xE2\\x96\\x8C tail\\n\") != std::string::npos");
             JTextFile f;
-            CHECK(f.read_full(path.string()).has_value());
+            check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
             const auto& rows = f.sections.at(0).entries;
-            CHECK(rows.size() == 3);
-            CHECK(rows[0].comment == "note" && rows[1].number == 2);
-            CHECK(rows[1].fields.size() == 1 && *rows[1].fields[0] == "line one | # x\n  indented\n\nlast");
-            CHECK(rows[2].number == 3 && *rows[2].fields[0] == "tail");
+            check(rows.size() == 3, "rows.size() == 3");
+            check(rows[0].comment == "note" && rows[1].number == 2, "rows[0].comment == \"note\" && rows[1].number == 2");
+            check(rows[1].fields.size() == 1 && *rows[1].fields[0] == "line one | # x\n  indented\n\nlast", "rows[1].fields.size() == 1 && *rows[1].fields[0] == \"line one | # x\\n indented\\n\\nlast\"");
+            check(rows[2].number == 3 && *rows[2].fields[0] == "tail", "rows[2].number == 3 && *rows[2].fields[0] == \"tail\"");
 
             // Written back by JTextFile, the file is the same.
             const auto again = std::filesystem::temp_directory_path() / "jtext_multiline_again.jtext";
-            CHECK(f.write(again.string()).has_value());
+            check(f.write(again.string()).has_value(), "f.write(again.string()).has_value()");
             std::ifstream fa(again);
             const std::string text2((std::istreambuf_iterator<char>(fa)), std::istreambuf_iterator<char>());
-            CHECK(text2.find(" 2. [*\n    ** line one | # x\n    **   indented\n    **\n    ** last\n    *]\n")
-                  != std::string::npos);
+            check(text2.find(" 2. [*\n    ** line one | # x\n    **   indented\n    **\n    ** last\n    *]\n")
+                  != std::string::npos, "text2.find(\" 2. [*\\n ** line one | # x\\n ** indented\\n **\\n ** last\\n *]\\n\") != std::string::npos");
             std::filesystem::remove(path);
             std::filesystem::remove(again);
         }
@@ -649,11 +650,11 @@ int main() {
         const std::string full = head + dev + section("test", " 1. |# 1|test.local\n\n 1. |# 2|test2\n")
                                  + prod + "=== End File ===\n";
         const auto replaced = jtext::replace_section_data(full, "test", " 1. |# 1|qa.local\n");
-        CHECK(replaced.has_value());
-        CHECK(*replaced == head + dev + section("test", " 1. |# 1|qa.local\n") + prod + "=== End File ===\n");
+        check(replaced.has_value(), "replaced.has_value()");
+        check(*replaced == head + dev + section("test", " 1. |# 1|qa.local\n") + prod + "=== End File ===\n", "*replaced == head + dev + section(\"test\", \" 1. |# 1|qa.local\\n\") + prod + \"=== End File ===\\n\"");
         const auto back = jtext::parse_file_structure(*replaced);
-        CHECK(back.has_value() && back->sections.size() == 3);
-        CHECK(back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{"1", "qa.local"}));
+        check(back.has_value() && back->sections.size() == 3, "back.has_value() && back->sections.size() == 3");
+        check(back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{"1", "qa.local"}), "back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{\"1\", \"qa.local\"})");
 
         const std::string light =
             "# JText File - created x\n\n"
@@ -661,25 +662,25 @@ int main() {
             "-- test --\n# Fields: cfg.jtFlds\n// note above the rows\n 1. |# 1|test.local\n-- End test --\n\n"
             "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --";   // no final newline
         const auto light_replaced = jtext::replace_section_data(light, "test", " 1. |# 1|qa.local\n 1. |# 2|qa2\n");
-        CHECK(light_replaced.has_value());
-        CHECK(*light_replaced ==
+        check(light_replaced.has_value(), "light_replaced.has_value()");
+        check(*light_replaced ==
               "# JText File - created x\n\n"
               "-- dev --\n# Fields: cfg.jtFlds\n 1. |# 1|dev.local\n-- End dev --\n\n"
               "-- test --\n# Fields: cfg.jtFlds\n// note above the rows\n 1. |# 1|qa.local\n 1. |# 2|qa2\n-- End test --\n\n"
-              "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --");
-        CHECK(jtext::parse_file_structure(*light_replaced).has_value());
+              "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --", "*light_replaced == \"# JText File - created x\\n\\n\" \"-- dev --\\n# Fields: cfg.jtFlds\\n 1. |# 1|dev.local\\n-- End dev --\\n\\n\" \"-- test --\\n# Fields: cfg.jtFlds\\n// note above the rows\\n 1. |# 1|qa.local\\n 1. |# 2|qa2\\n-- End test --\\n\\n\" \"-- prod --\\n 1. |# 1|prod.example\\n-- End prod --\\n\\n-- EOF --\"");
+        check(jtext::parse_file_structure(*light_replaced).has_value(), "jtext::parse_file_structure(*light_replaced).has_value()");
 
         // An empty light section takes its first rows right before its closer.
         const auto empty = jtext::replace_section_data(
             "# JText File - created x\n-- new --\n-- End new --\n-- EOF --\n", "new", " 1. |# 1|a\n");
-        CHECK(empty && *empty == "# JText File - created x\n-- new --\n 1. |# 1|a\n-- End new --\n-- EOF --\n");
+        check(empty && *empty == "# JText File - created x\n-- new --\n 1. |# 1|a\n-- End new --\n-- EOF --\n", "empty && *empty == \"# JText File - created x\\n-- new --\\n 1. |# 1|a\\n-- End new --\\n-- EOF --\\n\"");
 
         auto kind = [](const std::expected<std::string, jtext::file_error>& r) {
             return r ? std::string("ok") : std::string(jtext::to_string(r.error().kind));
         };
-        CHECK(kind(jtext::replace_section_data(full, "staging", "")) == "section_not_found");
-        CHECK(kind(jtext::replace_section_data(head + dev + dev + "=== End File ===\n", "dev", "")) == "section_ambiguous");
-        CHECK(kind(jtext::replace_section_data(full.substr(0, full.size() - 17), "test", "")) == "missing_closer");
+        check(kind(jtext::replace_section_data(full, "staging", "")) == "section_not_found", "kind(jtext::replace_section_data(full, \"staging\", \"\")) == \"section_not_found\"");
+        check(kind(jtext::replace_section_data(head + dev + dev + "=== End File ===\n", "dev", "")) == "section_ambiguous", "kind(jtext::replace_section_data(head + dev + dev + \"=== End File ===\\n\", \"dev\", \"\")) == \"section_ambiguous\"");
+        check(kind(jtext::replace_section_data(full.substr(0, full.size() - 17), "test", "")) == "missing_closer", "kind(jtext::replace_section_data(full.substr(0, full.size() - 17), \"test\", \"\")) == \"missing_closer\"");
     }
 
     {
@@ -696,7 +697,7 @@ int main() {
         std::ifstream fi(path);
         std::string first;
         std::getline(fi, first);
-        CHECK(first == "//File:    named.jtext");
+        check(first == "//File:    named.jtext", "first == \"//File: named.jtext\"");
         std::filesystem::remove_all(dir);
     }
 
@@ -720,16 +721,16 @@ int main() {
             w.end_record();
             w.finalize();
             const std::string text = o.str();
-            CHECK(text.find(" 1. \xE2\x96\xAE\xE2\x96\x8C conn.jtext\n") != std::string::npos);
-            CHECK(text.find("1\xE2\x96\xAE" "a\n\n") != std::string::npos);
+            check(text.find(" 1. \xE2\x96\xAE\xE2\x96\x8C conn.jtext\n") != std::string::npos, "text.find(\" 1. \\xE2\\x96\\xAE\\xE2\\x96\\x8C conn.jtext\\n\") != std::string::npos");
+            check(text.find("1\xE2\x96\xAE" "a\n\n") != std::string::npos, "text.find(\"1\\xE2\\x96\\xAE\" \"a\\n\\n\") != std::string::npos");
             const auto file = jtext::parse_file_structure(text);
-            CHECK(file.has_value());
+            check(file.has_value(), "file.has_value()");
             const auto& lines = file->sections.at(0).data_lines;
-            CHECK(lines.size() == 3 && lines[1].number == 0);   // row, record end, row
+            check(lines.size() == 3 && lines[1].number == 0, "lines.size() == 3 && lines[1].number == 0");   // row, record end, row
             bool name = false;
             for (const auto& hl : file->header_lines)
                 if (hl.number == 1 && hl.hierarchy == std::vector<std::string>{"conn.jtext"}) name = true;
-            CHECK(name);
+            check(name, "name");
         }
     }
 
@@ -765,24 +766,24 @@ int main() {
             w.finalize();
         }
         const std::string text = o.str();
-        CHECK(text.starts_with("=== jText File ===\n"));
-        CHECK(text.ends_with("=== End Data ===\n=== End Section ===\n\n=== End File ===\n"));
+        check(text.starts_with("=== jText File ===\n"), "text.starts_with(\"=== jText File ===\\n\")");
+        check(text.ends_with("=== End Data ===\n=== End Section ===\n\n=== End File ===\n"), "text.ends_with(\"=== End Data ===\\n=== End Section ===\\n\\n=== End File ===\\n\")");
         const auto file = jtext::parse_file_structure(text);
-        CHECK(file.has_value());
-        CHECK(file->sections.size() == 2);
+        check(file.has_value(), "file.has_value()");
+        check(file->sections.size() == 2, "file->sections.size() == 2");
         const auto& s = file->sections[0];
-        CHECK(s.name == "events" && s.includes.size() == 2 && s.includes[0].first == "Schema");
-        CHECK(s.templates.size() == 1 && s.templates[0].body == "INSERT INTO events VALUES ({1}, {2});");
+        check(s.name == "events" && s.includes.size() == 2 && s.includes[0].first == "Schema", "s.name == \"events\" && s.includes.size() == 2 && s.includes[0].first == \"Schema\"");
+        check(s.templates.size() == 1 && s.templates[0].body == "INSERT INTO events VALUES ({1}, {2});", "s.templates.size() == 1 && s.templates[0].body == \"INSERT INTO events VALUES ({1}, {2});\"");
         std::size_t rows = 0;
         for (const auto& pl : s.data_lines) if (pl.number != 0) ++rows;
-        CHECK(rows == 3);   // the multiline record is two lines: fields 1 and 2
-        CHECK(s.data_lines.front().hierarchy == (std::vector<std::string>{"1", "a|b # c"}));
+        check(rows == 3, "rows == 3");   // the multiline record is two lines: fields 1 and 2
+        check(s.data_lines.front().hierarchy == (std::vector<std::string>{"1", "a|b # c"}), "s.data_lines.front().hierarchy == (std::vector<std::string>{\"1\", \"a|b # c\"})");
         bool purpose = false, version = false;
         for (const auto& hl : file->header_lines) {
             if (hl.number == 3 && hl.hierarchy == std::vector<std::string>{"event log # main"}) purpose = true;
             if (hl.number == 4 && hl.hierarchy == std::vector<std::string>{"0.8"}) version = true;
         }
-        CHECK(purpose && version);
+        check(purpose && version, "purpose && version");
 
         // JTextFile reads it, and a writer dropped without finalize() still closes it.
         const auto path = std::filesystem::temp_directory_path() / "jtext_full_profile_test.jtext";
@@ -795,8 +796,8 @@ int main() {
             w.append_row(1, {std::string("7"), std::string("z")}, "", U'|');
         }
         JTextFile f;
-        CHECK(f.read_full(path.string()).has_value());
-        CHECK(f.sections.size() == 1 && f.sections[0].entries.size() == 1);
+        check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
+        check(f.sections.size() == 1 && f.sections[0].entries.size() == 1, "f.sections.size() == 1 && f.sections[0].entries.size() == 1");
         std::filesystem::remove(path);
     }
 
@@ -811,7 +812,7 @@ int main() {
             {
                 std::ofstream fo(path);
                 JTextWriter w(fo);
-                CHECK(w.bad_row_policy() == BadRowPolicy::Terminate);   // the default
+                check(w.bad_row_policy() == BadRowPolicy::Terminate, "w.bad_row_policy() == BadRowPolicy::Terminate");   // the default
                 w.set_bad_row_policy(BadRowPolicy::Skip);
                 w.set_auto_batch_size(batch);
                 w.write_header();
@@ -835,20 +836,20 @@ int main() {
                 w.finalize();
                 skipped = w.skipped_rows();
             }
-            CHECK(skipped == 3);
+            check(skipped == 3, "skipped == 3");
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            CHECK(text.find("1. |\xE2\x96\x8C 1|ok") != std::string::npos);    // the skipped row took no id
-            CHECK(text.find("a|b") == std::string::npos);
-            CHECK(text.find("8|first") != std::string::npos);        // the good row of the batch
-            CHECK(text.find("1. ~\xE2\x96\x8C 7~x|y") != std::string::npos);
+            check(text.find("1. |\xE2\x96\x8C 1|ok") != std::string::npos, "text.find(\"1. |\\xE2\\x96\\x8C 1|ok\") != std::string::npos");    // the skipped row took no id
+            check(text.find("a|b") == std::string::npos, "text.find(\"a|b\") == std::string::npos");
+            check(text.find("8|first") != std::string::npos, "text.find(\"8|first\") != std::string::npos");        // the good row of the batch
+            check(text.find("1. ~\xE2\x96\x8C 7~x|y") != std::string::npos, "text.find(\"1. ~\\xE2\\x96\\x8C 7~x|y\") != std::string::npos");
             JTextFile f;
-            CHECK(f.read_full(path.string()).has_value());
+            check(f.read_full(path.string()).has_value(), "f.read_full(path.string()).has_value()");
             bool whole = false;
             for (const auto& sec : f.sections)
                 for (const auto& r : sec.entries)
                     if (r.fields.size() == 2 && r.fields[1] && *r.fields[1] == "x|y") whole = true;
-            CHECK(whole);
+            check(whole, "whole");
             std::filesystem::remove(path);
         }
     }
@@ -860,9 +861,9 @@ int main() {
         for (const std::size_t batch : {std::size_t{0}, std::size_t{10}}) {
             const auto path = std::filesystem::temp_directory_path() / "jtext_terminate_test.jtext";
             int err_pipe[2];
-            CHECK(pipe(err_pipe) == 0);
+            check(pipe(err_pipe) == 0, "pipe(err_pipe) == 0");
             const pid_t child = fork();
-            CHECK(child >= 0);
+            check(child >= 0, "child >= 0");
             if (child == 0) {
                 const rlimit no_core{0, 0};
                 setrlimit(RLIMIT_CORE, &no_core);
@@ -885,16 +886,16 @@ int main() {
             close(err_pipe[0]);
             int status = 0;
             waitpid(child, &status, 0);
-            CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
-            CHECK(err.find("jText ERROR: cannot write a row: field 2 contains the separator '|'") != std::string::npos);
-            CHECK(err.find("section: Launch") != std::string::npos);
-            CHECK(err.find("value:   \"a|b\"") != std::string::npos);
-            CHECK(err.find(path.string()) != std::string::npos);
+            check(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT, "WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT");
+            check(err.find("jText ERROR: cannot write a row: field 2 contains the separator '|'") != std::string::npos, "err.find(\"jText ERROR: cannot write a row: field 2 contains the separator '|'\") != std::string::npos");
+            check(err.find("section: Launch") != std::string::npos, "err.find(\"section: Launch\") != std::string::npos");
+            check(err.find("value:   \"a|b\"") != std::string::npos, "err.find(\"value: \\\"a|b\\\"\") != std::string::npos");
+            check(err.find(path.string()) != std::string::npos, "err.find(path.string()) != std::string::npos");
             std::ifstream fi(path);
             const std::string text((std::istreambuf_iterator<char>(fi)), std::istreambuf_iterator<char>());
-            CHECK(text.find("1|before") != std::string::npos);
-            CHECK(text.find("a|b") == std::string::npos);
-            CHECK(text.find("after") == std::string::npos);
+            check(text.find("1|before") != std::string::npos, "text.find(\"1|before\") != std::string::npos");
+            check(text.find("a|b") == std::string::npos, "text.find(\"a|b\") == std::string::npos");
+            check(text.find("after") == std::string::npos, "text.find(\"after\") == std::string::npos");
             std::filesystem::remove(path);
         }
     }
