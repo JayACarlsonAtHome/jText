@@ -94,8 +94,10 @@ only: with `▮▌`, the marker is ` ▌ `. Other Unicode spaces (such as U+00A0
 spaces for this rule.
 
 **Section 2.3.** A file whose formatters use any character outside ASCII **must**
-declare `jtext_version` `0.8` or later. Readers implementing v0.8 parse such lines
-regardless of the declared version. *(The full-profile writer declares `0.8`.)*
+declare `jtext_version` `0.8` or later: header line 4 in the full profile, and the line
+`# jText Version: 0.8` in the light profile's `#` block (after `# Purpose`, the full
+profile's order). Readers implementing v0.8 parse such lines regardless of the declared
+version. *(Both writers declare `0.8`.)*
 
 **Section 6.1.** "Malformed formatters" now includes a character that is not
 Punctuation or Symbol, and a formatter that is not valid UTF-8.

@@ -395,6 +395,7 @@ void write_jtext_hash_header(std::ostream& out,
                                bool auto_id) {
     out << std::format("# JText File - created {}\n", created_utc);
     out << std::format("# Purpose - {}\n", purpose);
+    out << "# jText Version: 0.8\n";   // the file may use non-ASCII formatters (SPEC v0.8, 2.3)
     out << std::format("# Case: {}\n",
         case_mode == CaseMode::Insensitive ? "INSENSITIVE" : "Sensitive");
     if (!sql_dialect.empty()) {
@@ -428,22 +429,7 @@ void write_header_block(std::ostream& out,
                         std::string_view table_name,
                         bool auto_id)
 {
-    out << std::format("# JText File - created {}\n", date);
-    out << std::format("# Purpose - {}\n", purpose);
-    out << std::format("# Case: {}\n",
-        case_mode == CaseMode::Insensitive ? "INSENSITIVE" : "Sensitive");
-
-    if (!sql_dialect.empty()) {
-        out << std::format("# SQL Dialect: {}\n", sql_dialect);
-    }
-    if (!table_name.empty()) {
-        out << std::format("# Table Name: {}\n", table_name);
-    }
-    if (!sql_dialect.empty()) {
-        out << std::format("# AutoID: {}\n", auto_id ? "yes" : "no");
-        out << "# Note: Field types are user-defined and not validated. "
-               "The SQL generator will use them as provided.\n";
-    }
+    write_jtext_hash_header(out, date, purpose, case_mode, table_name, sql_dialect, auto_id);
     out << "\n";
 }
 

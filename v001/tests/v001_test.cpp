@@ -1,6 +1,6 @@
 #include <jText/v001.hpp>
 
-static_assert(jText::v001::version() == "v001.014", "v001 version");
+static_assert(jText::v001::version() == "v001.015", "v001 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -699,6 +699,23 @@ int main() {
         std::getline(fi, first);
         check(first == "//File:    named.jtext", "first == \"//File: named.jtext\"");
         std::filesystem::remove_all(dir);
+    }
+
+    {
+        // The light profile declares its jText version in the "#" block, as the full profile
+        // does on header line 4: the writer's formatters are non-ASCII (SPEC v0.8, 2.3).
+        using namespace jText::v001;
+        std::ostringstream o;
+        JTextWriter w(o);
+        w.write_header();
+        w.begin_section("s");
+        w.append_row(1, {std::string("1"), std::string("a")});
+        w.end_record();
+        w.finalize();
+        const std::string text = o.str();
+        check(text.find("# Purpose - \n# jText Version: 0.8\n# Case: ") != std::string::npos,
+              "light header declares jText Version 0.8");
+        check(jtext::parse_file_structure(text).has_value(), "the light file parses");
     }
 
     {

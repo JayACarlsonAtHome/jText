@@ -79,6 +79,7 @@ The light profile uses a deliberate **`//` vs `#` contrast**:
 //
 # JText File - created 2026-06-08T00:00:00Z
 # Purpose - ts_store test matrix run manifest
+# jText Version: 0.8
 # Case: Sensitive
 # Table Name: ts_run_manifest
 
@@ -159,7 +160,7 @@ jText files are **UTF-8 encoded**.
 
 ### 2.3 File Header (full profile and `#` block in light profile)
 
-The file header captures metadata that applies to the whole file. In the **light profile**, these fields appear as `#` lines immediately after the `//` wrapper (see §2.0.1). In the **full profile**, they appear as numbered lines inside `=== jText File ===`. Every header line follows the standard line grammar (Section 3).
+The file header captures metadata that applies to the whole file. In the **light profile**, these fields appear as `#` lines immediately after the `//` wrapper (see §2.0.1): `# JText File - created <date>`, `# Purpose - <purpose>`, `# jText Version: <jtext_version>`, `# Case: <case_mode>`, `# SQL Dialect: <sql_dialect>`, `# Table Name: <table_name>`, `# AutoID: <auto_id>`. In the **full profile**, they appear as numbered lines inside `=== jText File ===`. Every header line follows the standard line grammar (Section 3).
 
 The recognized file-header fields are:
 
