@@ -72,6 +72,18 @@ struct parsed_template {
 //     in multiline_bodies (indexed by position) holds the raw body
 // ──────────────────────────────────────────────────────────────
 
+// A whole comment line (SPEC 3.2.1): a line of its own, kept where it stands. `text` is
+// the line without its leading "#" or "//" and the spaces around it; `before` is the
+// index, in its block's lines, of the line it stands before, or the block's size when
+// it stands at the end. Blocks: parsed_file::header_lines (light profile: metadata),
+// parsed_section::field_lines, parsed_section::data_lines (blank-line sentinels count).
+// A comment line between sections stands before the next section's first block; one
+// after the file's closer, at the end of the last.
+struct comment_line {
+    std::size_t before = 0;
+    std::string text;
+};
+
 struct multiline_body {
     std::size_t  data_line_index = 0;  // index into parsed_section::data_lines
     std::string  body;                 // the value's lines, joined with '\n' (also the opener's values[0])
@@ -81,7 +93,9 @@ struct parsed_section {
     std::string                    name;
     std::vector<parsed_template>   templates;
     std::vector<parsed_line>       field_lines;
+    std::vector<comment_line>      field_comments;   // comment lines in the intro and Fields block
     std::vector<parsed_line>       data_lines;
+    std::vector<comment_line>      data_comments;    // comment lines in the data block
     std::vector<multiline_body>    data_multiline_bodies;
     // Support for <#include#> markers (e.g. for ts_store schema/fields sharing)
     // These are recognized in intro state as special markers, not regular entries.
@@ -109,6 +123,7 @@ struct parsed_file {
     // Light profile: the "#" metadata lines before the first section, without
     // their "#" ("JText File - created ...", "Purpose - ...", "Case: ...").
     std::vector<std::string>     metadata;
+    std::vector<comment_line>    header_comments;   // comment lines in the file header
     std::vector<parsed_section>  sections;
 };
 

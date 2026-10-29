@@ -20,6 +20,7 @@ if(NOT TARGET jtext_core)
         src/parser/section.cpp
         src/parser/close.cpp
         src/validator/validator.cpp
+        src/export/xml_export.cpp
     )
     target_include_directories(jtext_core PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}        # jText.h

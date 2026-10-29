@@ -1,10 +1,11 @@
 #include <jText/v002.hpp>
 
-static_assert(jText::v002::version() == "v002.018", "v002 version");
+static_assert(jText::v002::version() == "v002.019", "v002 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
 #include "parser/section.hpp"
+#include "export/xml_export.hpp"
 #include <csignal>
 #include <cstdlib>
 #include <sys/resource.h>
@@ -720,6 +721,143 @@ int main() {
         check(text.find("# Purpose - \n# jText Version: 0.8\n# Case: ") != std::string::npos,
               "light header declares jText Version 0.8");
         check(jtext::parse_file_structure(text).has_value(), "the light file parses");
+    }
+
+    {
+        // Comment lines are data (SPEC 3.2.1): a line of its own, kept where it stands, in
+        // the header, the intro and Fields block, the data block (before a record, inside
+        // one, at the end), between sections and after the file's closer.
+        const std::string full =
+            "//File:    c.jtext\n//\n"                         // the file's // block: not a comment
+            "=== jText File ===\n// about the header\n 1. ?# c.jtext\n 4. ?# 0.8\n# header end\n\n"
+            "=== Section: s ===\n// intro\n=== Fields ===\n 1. /# id/Integer\n# about a\n 2. /# a/String\n"
+            "=== End Fields ===\n=== Data ===\n# first record\n 1. ?# 1\n// inside\n 2. ?# x # the line's own\n\n"
+            "# second\n 1. |# 2|y\n# data end\n=== End Data ===\n=== End Section ===\n"
+            "# between\n=== Section: t ===\n=== Fields ===\n 1. /# id/Integer\n=== End Fields ===\n"
+            "=== Data ===\n 1. ?# 1\n=== End Data ===\n=== End Section ===\n=== End File ===\n# after\n";
+        auto pf = jtext::parse_file_structure(full);
+        check(pf.has_value(), "the commented full file parses");
+        const auto texts = [](const std::vector<jtext::comment_line>& v) {
+            std::vector<std::pair<std::size_t, std::string>> out;
+            for (const auto& c : v) out.emplace_back(c.before, c.text);
+            return out;
+        };
+        using P = std::vector<std::pair<std::size_t, std::string>>;
+        check(texts(pf->header_comments) == P{{0, "about the header"}, {2, "header end"}},
+              "header comment lines, before line 1 and at the end");
+        const auto& s0 = pf->sections.at(0);
+        check(texts(s0.field_comments) == P{{0, "intro"}, {1, "about a"}}, "intro and Fields comment lines");
+        // data_lines: [0] 1.  [1] 2.  [2] blank  [3] 1. |#
+        check(texts(s0.data_comments) == P{{0, "first record"}, {1, "inside"}, {3, "second"}, {4, "data end"}},
+              "data comment lines: before a record, inside one, before the next, at the end");
+        check(s0.data_lines.at(1).comment == "the line's own" &&
+              s0.data_lines.at(1).values == std::vector<std::string>{"x"},
+              "a line's own comment stays on its line");
+        check(texts(pf->sections.at(1).field_comments) == P{{0, "between"}}, "a comment line between sections");
+        check(texts(pf->sections.at(1).data_comments) == P{{1, "after"}}, "a comment line after the closer");
+
+        const std::string light =
+            "# JText File - created 2026-01-01\n# jText Version: 0.8\n// header note\n\n"
+            "-- s --\n# Fields: f.jtFlds\n# top\n 1. |# 1|a\n# middle\n 1. |# 2|b\n# end of s\n-- End s --\n"
+            "# between\n-- t --\n 1. |# 1|c\n-- End t --\n-- EOF --\n# after\n";
+        auto lf = jtext::parse_file_structure(light);
+        check(lf.has_value(), "the commented light file parses");
+        check(texts(lf->header_comments) == P{{2, "header note"}}, "a light header comment line");
+        check(lf->sections.at(0).includes.size() == 1, "# Fields: is an include, not a comment");
+        check(texts(lf->sections.at(0).data_comments) == P{{0, "top"}, {1, "middle"}, {2, "end of s"}},
+              "light data comment lines");
+        check(texts(lf->sections.at(1).data_comments) == P{{0, "between"}, {1, "after"}},
+              "light: between sections, and after -- EOF --");
+
+        // JTextFile keeps them through a read, a write and a read.
+        using namespace jText::v002;
+        const auto path = std::filesystem::temp_directory_path() / "jtext_comment_lines_test.jtext";
+        { std::ofstream fo(path); fo << light; }
+        JTextFile f;
+        check(f.read_full(path.string()).has_value(), "JTextFile reads the commented file");
+        const auto& c0 = f.sections.at(0).comments;
+        check(c0.size() == 3 && c0[0].before == 0 && c0[0].text == "top" && c0[1].before == 1 &&
+              c0[1].text == "middle" && c0[2].before == 2 && c0[2].text == "end of s",
+              "JTextFile places comment lines among its entries");
+        check(f.write(path.string()).has_value(), "JTextFile writes it");
+        JTextFile g;
+        check(g.read_full(path.string()).has_value(), "and reads it again");
+        const auto& g0 = g.sections.at(0).comments;
+        check(g0.size() == 3 && g0[0].text == "top" && g0[1].before == 1 && g0[2].before == 2 &&
+              g.header_comments == std::vector<std::string>{"header note"} &&
+              g.sections.at(1).comments.size() == 2,
+              "the comment lines survive the save, where they stood");
+        std::filesystem::remove(path);
+    }
+
+    {
+        // The canonical XML export (XML_EXPORT.md): one byte form for one set of data.
+        const auto xml = [](const std::string& text, jtext::xml_scope scope) {
+            auto pf = jtext::parse_file_structure(text);
+            check(pf.has_value(), "the file to export parses");
+            return jtext::to_xml(*pf, scope);
+        };
+        const std::string fields =
+            "=== Fields ===\n 1. /# id/Integer\n 2. /# name/VarChar/20/Not Null\n 3. /# d/Date # when\n=== End Fields ===\n";
+        const auto full_file = [&](const std::string& data) {
+            return "=== jText File ===\n 1. ?# x.jtext\n 4. ?# 0.8\n 5. ?# yes\n\n=== Section: s ===\n" + fields +
+                   "=== Data ===\n" + data + "=== End Data ===\n=== End Section ===\n=== End File ===\n";
+        };
+
+        // The exact bytes, so the layout cannot drift.
+        const std::string golden =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<jtext format=\"0.8\" export=\"0.1\" scope=\"data\" xml:space=\"preserve\">\n"
+            "  <section>\n"
+            "    <fields>\n"
+            "      <field position=\"1\" name=\"id\" type=\"Integer\" not-null=\"true\" not-empty=\"true\"/>\n"
+            "      <field position=\"2\" name=\"name\" type=\"String\" length=\"20\" not-null=\"true\"/>\n"
+            "      <field position=\"3\" name=\"d\" type=\"Date\" null-date=\"1900-01-01\" comment=\"when\"/>\n"
+            "    </fields>\n"
+            "    <records>\n"
+            "      <record>\n"
+            "        <comment>first</comment>\n"
+            "        <value position=\"1\" comment=\"row note\">1</value>\n"
+            "        <value position=\"2\">a &amp; b &lt;c&gt; &#13;x</value>\n"
+            "        <value position=\"3\">2026-01-01</value>\n"
+            "      </record>\n"
+            "      <record>\n"
+            "        <value position=\"1\">2</value>\n"
+            "        <value position=\"2\" encoding=\"base64\">AWI=</value>\n"
+            "        <value position=\"3\"/>\n"
+            "      </record>\n"
+            "      <comment>the end</comment>\n"
+            "    </records>\n"
+            "  </section>\n"
+            "</jtext>\n";
+        const std::string rows =
+            "# first\n 1. ▮▌ 1▮a & b <c> \rx▮2026-01-01 ▌ row note\n 1. |# 2|\x01" "b|\n# the end\n";
+        check(xml(full_file(rows), jtext::xml_scope::data) == golden, "the data-scope export, byte for byte");
+
+        // The same data written one line per field exports the same bytes.
+        const std::string vertical =
+            "// first\n 1. ?# 1 # row note\n 2. ?# a & b <c> \rx\n 3. ?# 2026-01-01\n\n"
+            " 1. ?# 2\n 2. |# \x01" "b\n\n// the end\n";
+        check(xml(full_file(vertical), jtext::xml_scope::data) == golden,
+              "rows and per-field lines with the same data and comments export the same");
+
+        // A comment belongs to its line: on a line that starts at field 2, it is on value 2.
+        const auto split = xml(full_file(" 1. ?# 1\n 2. |# n|2026-01-01 # on two\n"), jtext::xml_scope::data);
+        check(split.find("<value position=\"2\" comment=\"on two\">n</value>") != std::string::npos,
+              "a line's comment is on the value where the line starts");
+
+        // full scope: header (normalized), section name, attribute escaping.
+        const auto full = xml(full_file(" 1. ?# 1 # say \"hi\"\n"), jtext::xml_scope::full);
+        check(full.find("  <header>\n    <filename>x.jtext</filename>\n    <jtext_version>0.8</jtext_version>\n"
+                        "    <case_mode>yes</case_mode>\n  </header>\n  <section name=\"s\">\n") != std::string::npos,
+              "full scope: header in the canonical order, then the named section");
+        check(full.find("comment=\"say &quot;hi&quot;\"") != std::string::npos, "a quote in an attribute");
+
+        // U+001F reads as {NULL}; NULL is text.
+        const auto nul = xml(full_file(" 1. |# 1|\x1F|\n 1. |# 2|NULL|2026-01-01\n"), jtext::xml_scope::data);
+        check(nul.find("<value position=\"2\">{NULL}</value>") != std::string::npos &&
+              nul.find("<value position=\"2\">NULL</value>") != std::string::npos,
+              "U+001F exports as {NULL}, and NULL as NULL");
     }
 
     {

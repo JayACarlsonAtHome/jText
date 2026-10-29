@@ -145,14 +145,27 @@ auto JTextFile::read_file(std::string_view filepath, std::string_view only_secti
         }
     }
 
+    header_comments.clear();
+    for (auto& c : parsed->header_comments) header_comments.push_back(std::move(c.text));
+
     for (auto& ps : parsed->sections) {
         if (!only_section.empty() && ps.name != only_section) continue;
         JTextSection sec;
         sec.name = ps.name;
-        for (auto& pl : ps.data_lines) {
-            if (pl.number == 0) continue;   // record boundary
-            sec.entries.push_back(entry_from_line(std::move(pl)));
+        // A comment line stands before a data line; entries leave out the record
+        // boundaries, so its place is counted in entries.
+        std::size_t next_comment = 0;
+        auto take_comments = [&](std::size_t data_index) {
+            for (; next_comment < ps.data_comments.size() &&
+                   ps.data_comments[next_comment].before <= data_index; ++next_comment)
+                sec.comments.push_back({sec.entries.size(), std::move(ps.data_comments[next_comment].text)});
+        };
+        for (std::size_t d = 0; d < ps.data_lines.size(); ++d) {
+            take_comments(d);
+            if (ps.data_lines[d].number == 0) continue;   // record boundary
+            sec.entries.push_back(entry_from_line(std::move(ps.data_lines[d])));
         }
+        take_comments(ps.data_lines.size());
         sections.push_back(std::move(sec));
     }
     return {};
@@ -215,13 +228,22 @@ auto JTextFile::write(std::string_view filepath) const -> std::expected<void, st
     writer.set_auto_id(auto_id);
 
     writer.write_header();
+    for (const auto& c : header_comments) writer.write_comment_line(c);
 
     for (const auto& sec : sections) {
         writer.begin_section(sec.name);
         writer.set_line_number_pad_width(jtext_line_pad_width_for_count(sec.entries.size()));
-        for (const auto& e : sec.entries) {
-            writer.append_entry(e);
+        std::size_t next_comment = 0;
+        auto put_comments = [&](std::size_t before) {
+            for (; next_comment < sec.comments.size() && sec.comments[next_comment].before <= before;
+                 ++next_comment)
+                writer.write_comment_line(sec.comments[next_comment].text);
+        };
+        for (std::size_t n = 0; n < sec.entries.size(); ++n) {
+            put_comments(n);
+            writer.append_entry(sec.entries[n]);
         }
+        put_comments(sec.entries.size());
     }
 
     writer.finalize();
@@ -1224,6 +1246,23 @@ void JTextWriter::end_record()
     if (record_lines_ > 0 && !(record_lines_ == 1 && record_is_row_)) write_lines("\n");
     record_lines_ = 0;
     record_is_row_ = false;
+}
+
+void JTextWriter::write_comment_line(std::string_view text)
+{
+    ensure_header();
+    ensure_not_finalized();
+    if (!out_) return;
+    std::string lines;
+    std::size_t start = 0;
+    for (;;) {
+        const auto end = text.find('\n', start);
+        const auto one = text.substr(start, end == std::string_view::npos ? end : end - start);
+        lines += one.empty() ? std::string{"//\n"} : std::format("// {}\n", one);
+        if (end == std::string_view::npos) break;
+        start = end + 1;
+    }
+    write_lines(std::move(lines));
 }
 
 void JTextWriter::count_record_line(std::size_t number, std::size_t field_count, bool multiline)

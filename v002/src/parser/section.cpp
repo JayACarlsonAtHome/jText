@@ -49,6 +49,27 @@ auto strip_eol(std::string_view sv) -> std::string_view
 }
 
 
+// A whole comment line: "#" or "//" first (SPEC 3.2.1).
+auto is_comment_line(std::string_view line) -> bool
+{
+    const auto t = trim(line);
+    return t.starts_with('#') || t.starts_with("//");
+}
+
+// A comment line's text: without its leading "#" or "//" and the spaces around it.
+auto comment_text(std::string_view line) -> std::string
+{
+    auto t = trim(line);
+    t.remove_prefix(t.starts_with("//") ? 2 : 1);
+    return std::string{trim(t)};
+}
+
+// Comment lines whose line was dropped (a trailing blank-line sentinel) stand at the end.
+void clamp_comments(std::vector<comment_line>& comments, std::size_t size)
+{
+    for (auto& c : comments) c.before = std::min(c.before, size);
+}
+
 auto is_blank(std::string_view sv) -> bool
 {
     bool result = false;
@@ -335,10 +356,13 @@ auto build_one_section(
         const auto stripped = strip_eol(raw);
         const auto line_no = cursor + 1;  // 1-based
 
-        // Skip comment lines (# or //) inside the section (for robustness with
-        // ts_store samples, explanatory comments, etc.). They are already skipped
-        // at file header level.
+        // A comment line is a line of its own, kept where it stands (SPEC 3.2.1).
         if (stripped.starts_with('#') || stripped.starts_with("//")) {
+            const bool in_data = state == section_state::reading_data ||
+                                 state == section_state::after_data;
+            (in_data ? sec.data_comments : sec.field_comments)
+                .push_back({in_data ? sec.data_lines.size() : sec.field_lines.size(),
+                            comment_text(stripped)});
             ++cursor;
             continue;
         }
@@ -377,6 +401,7 @@ auto build_one_section(
                 }
                 ++cursor;
                 trim_trailing_blank();
+                clamp_comments(sec.data_comments, sec.data_lines.size());
                 return sec;
             }
 
@@ -590,6 +615,7 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
             continue;
         }
         if (t.starts_with('#') || t.starts_with("//")) {
+            sec.data_comments.push_back({sec.data_lines.size(), comment_text(t)});
             ++cursor;
             continue;
         }
@@ -599,6 +625,7 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
                 if (!data_seen) sec.data_begin = cursor;
                 ++cursor;
                 trim_trailing_blank();
+                clamp_comments(sec.data_comments, sec.data_lines.size());
                 return sec;
             }
             if (banner.starts_with("End ")) {
@@ -638,12 +665,34 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
                            sec.name, closer));
 }
 
+// Comment lines that stood between sections go before the next section's first block
+// (its intro and Fields comments, or a light section's data); those after the file's
+// closer go at the end of the last section's data, or of the header when there is none.
+void place_leading(std::vector<comment_line>& pending, std::vector<comment_line>& first_block)
+{
+    first_block.insert(first_block.begin(), pending.begin(), pending.end());
+    pending.clear();
+}
+
+void place_trailing(std::vector<comment_line>& pending, parsed_file& out)
+{
+    if (out.sections.empty()) {
+        const auto end = std::max(out.header_lines.size(), out.metadata.size());
+        for (auto& c : pending) out.header_comments.push_back({end, std::move(c.text)});
+    } else {
+        auto& sec = out.sections.back();
+        for (auto& c : pending) sec.data_comments.push_back({sec.data_lines.size(), std::move(c.text)});
+    }
+    pending.clear();
+}
+
 // `cursor` is at the magic line.
 auto build_light_file(const std::vector<std::string>& lines, std::size_t cursor)
     -> std::expected<parsed_file, file_error>
 {
     parsed_file out;
     bool in_header = true;   // the "#" metadata block, before the first section
+    std::vector<comment_line> pending;   // comment lines between sections
 
     while (cursor < lines.size()) {
         const auto stripped = strip_eol(lines[cursor]);
@@ -654,7 +703,13 @@ auto build_light_file(const std::vector<std::string>& lines, std::size_t cursor)
             ++cursor;
             continue;
         }
-        if (is_blank(stripped) || t.starts_with('#') || t.starts_with("//")) {
+        if (is_blank(stripped)) {
+            ++cursor;
+            continue;
+        }
+        if (is_comment_line(t)) {
+            if (in_header) out.header_comments.push_back({out.metadata.size(), comment_text(t)});
+            else pending.push_back({0, comment_text(t)});
             ++cursor;
             continue;
         }
@@ -664,11 +719,14 @@ auto build_light_file(const std::vector<std::string>& lines, std::size_t cursor)
             // The file is closed: only blank lines and comments may follow.
             for (++cursor; cursor < lines.size(); ++cursor) {
                 const auto rest = trim(strip_eol(lines[cursor]));
-                if (!rest.empty() && !rest.starts_with("//") && !rest.starts_with('#')) {
+                if (rest.empty()) continue;
+                if (!is_comment_line(rest)) {
                     return err(file_error_kind::unexpected_marker, cursor + 1,
                                "content after '-- EOF --'");
                 }
+                pending.push_back({0, comment_text(rest)});
             }
+            place_trailing(pending, out);
             return out;
         }
         if (banner.empty() || banner.starts_with("End ")) {
@@ -680,6 +738,7 @@ auto build_light_file(const std::vector<std::string>& lines, std::size_t cursor)
         ++cursor;
         auto sec_or_err = build_light_section(lines, cursor, std::string{banner});
         if (!sec_or_err) return std::unexpected{sec_or_err.error()};
+        place_leading(pending, sec_or_err->data_comments);
         out.sections.push_back(std::move(*sec_or_err));
     }
     return err(file_error_kind::missing_closer, lines.size() + 1,
@@ -693,16 +752,20 @@ auto build_from_lines(const std::vector<std::string>& lines)
     parsed_file out;
     std::size_t cursor = 0;
     bool opened_file = false;   // "=== jText File ===" seen: "=== End File ===" must close it
+    std::vector<comment_line> pending;   // comment lines between sections
 
     // The file is closed: only blank lines and comments may follow.
     auto after_end_file = [&]() -> std::expected<parsed_file, file_error> {
         for (; cursor < lines.size(); ++cursor) {
             const auto rest = trim(strip_eol(lines[cursor]));
-            if (!rest.empty() && !rest.starts_with("//") && !rest.starts_with('#')) {
+            if (rest.empty()) continue;
+            if (!is_comment_line(rest)) {
                 return err(file_error_kind::unexpected_marker, cursor + 1,
                            "content after '=== End File ==='");
             }
+            pending.push_back({0, comment_text(rest)});
         }
+        place_trailing(pending, out);
         return std::move(out);
     };
 
@@ -759,7 +822,7 @@ auto build_from_lines(const std::vector<std::string>& lines)
         }
 
         if (stripped.starts_with('#') || stripped.starts_with("//")) {
-            // skip legacy # header and any // comments in header area
+            out.header_comments.push_back({out.header_lines.size(), comment_text(stripped)});
             ++cursor;
             continue;
         }
@@ -793,6 +856,12 @@ auto build_from_lines(const std::vector<std::string>& lines)
             continue;
         }
 
+        if (is_comment_line(stripped)) {
+            pending.push_back({0, comment_text(stripped)});
+            ++cursor;
+            continue;
+        }
+
         std::string interior;
         if (!is_structural_marker(stripped, interior)) {
             return err(file_error_kind::unexpected_marker, line_no,
@@ -815,9 +884,11 @@ auto build_from_lines(const std::vector<std::string>& lines)
         ++cursor;  // past the section banner
         auto sec_or_err = build_one_section(lines, cursor, std::move(name));
         if (!sec_or_err) return std::unexpected{sec_or_err.error()};
+        place_leading(pending, sec_or_err->field_comments);
         out.sections.push_back(std::move(*sec_or_err));
     }
 
+    place_trailing(pending, out);
     if (opened_file) {
         return err(file_error_kind::missing_closer, lines.size() + 1,
                    "the file is not closed: expected '=== End File ===' before the end of the file");

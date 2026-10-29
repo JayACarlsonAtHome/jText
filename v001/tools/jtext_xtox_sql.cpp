@@ -29,7 +29,10 @@
 #include <jText/v001.hpp>
 #include "parser/section.hpp"
 #include "validator/validator.hpp"
+#include "export/xml_export.hpp"   // jtext::section_comments
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -69,6 +72,14 @@ static auto sql_string_literal(const std::string& v) -> std::string
     }
     out += '\'';
     return out;
+}
+
+// A plain SQL identifier: a letter or '_', then letters, digits and '_'; at most 63.
+static auto is_safe_identifier(std::string_view s) -> bool
+{
+    if (s.empty() || s.size() > 63) return false;
+    if (!(std::isalpha(static_cast<unsigned char>(s[0])) || s[0] == '_')) return false;
+    return std::ranges::all_of(s, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; });
 }
 
 // Is the whole string a plain base-10 integer (optionally signed)? Used to
@@ -191,24 +202,6 @@ int main(int argc, char** argv)
         return 4;
     }
 
-    // Find the "SQL Insert" template (first one for now)
-    std::string insert_template_body;
-    for (const auto& sec : result.file.sections) {
-        for (const auto& tpl : sec.templates) {
-            if (tpl.name == "SQL Insert") {
-                insert_template_body = tpl.body;
-                break;
-            }
-        }
-        if (!insert_template_body.empty()) break;
-    }
-
-    if (insert_template_body.empty()) {
-        std::cerr << "No 'SQL Insert' template found in file.\n";
-        return 5;
-    }
-
-    // Emit one INSERT per record using the template
     // The header block as SQL comments, so the file runs as written (SPEC 2.1).
     // If the source jText carried table_name, emit the compact Related form.
     std::string rel_table = base;
@@ -222,17 +215,65 @@ int main(int argc, char** argv)
     std::string output_sql = header.str();
     output_sql += "-- Generated from " + std::string(base) + ".jtFull\n";
     output_sql += "-- by jtext_xtox_sql\n";
-    output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n\n";
+    output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n";
 
-    bool first = true;
-    for (const auto& sec : result.file.sections) {
-        for (const auto& rec : sec.records) {
-            if (!first) output_sql += "\n";
-            first = false;
-            // The record id is field 1 of every record (SPEC 2.6.4), so the
-            // template's {1} already carries it; no id is synthesized here.
-            output_sql += substitute_record(insert_template_body, rec, sec.fields);
+    // Each section is one table (SPEC 2.3), with its own templates: "Create Table" once,
+    // "SQL Insert" per record, and its comments in <table>_comments (SPEC 4.3).
+    std::size_t inserts = 0;
+    for (std::size_t s = 0; s < result.file.sections.size(); ++s) {
+        const auto& sec = result.file.sections[s];
+        const auto find = [&](std::string_view name) -> const std::string* {
+            for (const auto& tpl : sec.templates)
+                if (tpl.name == name) return &tpl.body;
+            return nullptr;
+        };
+        const std::string* insert = find("SQL Insert");
+        if (!insert) continue;
+        // The data table's name names its comments table: the header's table_name for a
+        // one-section file (as the templates use it), else the section's name; lower-cased,
+        // as PostgreSQL folds an unquoted name.
+        const bool one = result.file.sections.size() == 1;
+        const bool header_table = one && it != result.file.header.end() && is_safe_identifier(it->second);
+        std::string table = header_table ? it->second : is_safe_identifier(sec.name) ? sec.name : "";
+        if (table.empty()) {
+            std::cerr << "ERROR: section '" << sec.name << "' has no table name usable for its "
+                      << "comments table (the header's table_name in a one-section file, or the "
+                      << "section name, must be a plain SQL identifier)\n";
+            return 5;
         }
+        std::ranges::transform(table, table.begin(), [](unsigned char c) { return std::tolower(c); });
+
+        output_sql += std::format("\n-- Section: {}\n", sec.name);
+        if (const std::string* create = find("Create Table")) output_sql += *create + "\n";
+        output_sql += std::format(
+            "CREATE TABLE IF NOT EXISTS {}_comments (\n"
+            "    block     TEXT    NOT NULL,\n"
+            "    kind      TEXT    NOT NULL,\n"
+            "    record_id INTEGER NOT NULL,\n"
+            "    position  INTEGER NOT NULL,\n"
+            "    seq       INTEGER NOT NULL,\n"
+            "    comment   TEXT    NOT NULL\n"
+            ");\n", table);
+
+        for (const auto& rec : sec.records) {
+            // The record id is field 1 of every record (SPEC 2.4.3), so the
+            // template's {1} already carries it; no id is synthesized here.
+            output_sql += "\n" + substitute_record(*insert, rec, sec.fields);
+            ++inserts;
+        }
+        for (const auto& c : jtext::section_comments(pf_or_err->sections[s])) {
+            output_sql += std::format(
+                "\nINSERT INTO {}_comments (block, kind, record_id, position, seq, comment) "
+                "VALUES ({}, {}, {}, {}, {}, {});", table, sql_string_literal(c.block),
+                sql_string_literal(c.kind), c.record_id, c.position, c.seq, sql_string_literal(c.text));
+        }
+        output_sql += "\n";
+    }
+    if (inserts == 0 && std::ranges::none_of(result.file.sections, [](const auto& sec) {
+            return std::ranges::any_of(sec.templates, [](const auto& t) { return t.name == "SQL Insert"; });
+        })) {
+        std::cerr << "No 'SQL Insert' template found in file.\n";
+        return 5;
     }
 
     // Write output
@@ -244,7 +285,6 @@ int main(int argc, char** argv)
     }
     out << output_sql;
 
-    std::cout << "Success. Wrote " << result.file.sections[0].records.size()
-              << " INSERT statement(s) to " << out_path << "\n";
+    std::cout << "Success. Wrote " << inserts << " INSERT statement(s) to " << out_path << "\n";
     return 0;
 }

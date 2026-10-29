@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.018"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.019"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -42,9 +42,17 @@ struct JTextEntry {
     std::string comment;
 };
 
+// A whole comment line (SPEC 3.2.1): a line of its own, kept where it stands, before
+// entries[before] (entries.size(): at the end). `text` is without the leading "#" or "//".
+struct JTextComment {
+    std::size_t before = 0;
+    std::string text;
+};
+
 struct JTextSection {
     std::string name;
     std::vector<JTextEntry> entries;
+    std::vector<JTextComment> comments;   // the comment lines among the entries
 };
 
 class JTextFile {
@@ -64,6 +72,8 @@ public:
     std::vector<std::string> warnings;
 
     std::vector<JTextSection> sections;
+    // Comment lines in the file header; written after the header lines.
+    std::vector<std::string> header_comments;
 
     auto write(std::string_view filepath) const -> std::expected<void, std::string>;
     auto read_full(std::string_view filepath) -> std::expected<void, std::string>;
@@ -164,6 +174,10 @@ public:
 
     // Append a complete entry
     void append_entry(const JTextEntry& entry);
+
+    // A whole comment line (SPEC 3.2.1), written "// text" where it is called. A text
+    // with line breaks is several comment lines.
+    void write_comment_line(std::string_view text);
 
     // End the record just written. A record written as lines of its own (one per field,
     // or broken by a multiline value) ends with a blank line. A record that is one

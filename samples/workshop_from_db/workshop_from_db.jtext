@@ -4,24 +4,35 @@
 //Related: type=PostgreSQL table=workshop_tools
 //
 === jText File ===
- 1. ?# workshop_from_db.jtext
- 2. ?# 2026-10-29
- 3. ?# Data retrieved from PostgreSQL table workshop_tools
- 4. ?# 0.8
+ 1. ▮▌ workshop_from_db.jtext
+ 2. ▮▌ 2026-10-29
+ 3. ▮▌ Data retrieved from PostgreSQL table workshop_tools
+ 4. ▮▌ 0.8
+ 5. ▮▌ Insensitive
+ 6. ▮▌ PostgreSQL
+ 7. ▮▌ workshop_tools
+ 8. ▮▌ true
 
 === Section: workshop_tools ===
 === Fields ===
-// (In real use you would use === <#include#> Fields: workshop_from_db.jtFlds ===)
- 1. /# id/Number/Not Null
- 2. /# name/String/Not Null
- 3. /# category/String/Not Null
- 4. /# acquired/Date/Nullable
- 5. /# condition/String/Not Null
- 6. /# location/String/Nullable
- 7. /# notes/String/Nullable
+ 1. /▌ id/Integer/Not Null
+ 2. /▌ name/String/80/Not Null
+ 3. /▌ category/String/100/Not Null
+ 4. /▌ acquired/Date/Nullable
+ 5. /▌ condition/String/30/Not Null
+ 6. /▌ location/String/50/Nullable
+ 7. /▌ notes/String/Nullable
 === End Fields ===
 === Data ===
-// TODO: Run a data query and emit actual records here
+ 1. ▮▌ 1▮Stanley Hammer 16oz▮Hand Tools/Hammers/Claw▮2019-04-12▮good▮Bench pegboard▮Fiberglass handle, still solid
+ 1. ▮▌ 2▮DeWalt Drill DCD777▮Power Tools/Drills/Cordless▮2022-11-30▮good▮Red cabinet, top shelf▮20V MAX, brushless, 2 batteries
+ 1. ▮▌ 3▮Klein Screwdriver Set▮Hand Tools/Screwdrivers/Sets▮1900-01-01▮fair▮Blue drawer #4▮11-piece, magnetic tips, one missing
+ 1. ▮▌ 4▮Milwaukee M18 Circular Saw▮Power Tools/Saws/Circular▮2021-07-15▮good▮Red cabinet, middle shelf▮6-1/2 inch, good for trim work
+ 1. ▮▌ 5▮Irwin Quick-Grip Clamps (pair)▮Hand Tools/Clamps/Bar▮1900-01-01▮excellent▮Bench pegboard▮6 inch and 12 inch
+ 1. ▮▌ 6▮Ryobi Orbital Sander▮Power Tools/Sanders/Orbital▮2020-03-08▮fair▮Lower cabinet▮Needs new sanding pads, motor still strong
+ 1. ▮▌ 7▮Lufkin Tape Measure 25ft▮Measuring/Tapes▮1900-01-01▮good▮Apron pocket usually▮
+ 1. ▮▌ 8▮Wera Hex Key Set (metric)▮Hand Tools/Allen Keys/Sets▮2023-09-22▮excellent▮Small red pouch▮Color coded, very nice set
 === End Data ===
 === End Section ===
+
 === End File ===

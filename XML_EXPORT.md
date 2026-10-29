@@ -5,7 +5,8 @@
 # jText — Canonical XML Export
 
 **Version:** 0.1 (draft), for jText format 0.8
-**Status:** Draft. Not implemented yet.
+**Status:** Draft. Implemented: `jtext::to_xml` (`src/export/xml_export.hpp`) and the
+`jtext_to_xml` tool; the SQLite and PostgreSQL round-trip tests compare through it.
 
 ---
 

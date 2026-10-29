@@ -4,11 +4,11 @@
 //Related: type=PostgreSQL table=workshop_tools
 //
 === Fields ===
- 1. /# id/Number/Not Null
- 2. /# name/String/Not Null
- 3. /# category/String/Not Null
+ 1. /# id/Integer/Not Null
+ 2. /# name/String/80/Not Null
+ 3. /# category/String/100/Not Null
  4. /# acquired/Date/Nullable
- 5. /# condition/String/Not Null
- 6. /# location/String/Nullable
+ 5. /# condition/String/30/Not Null
+ 6. /# location/String/50/Nullable
  7. /# notes/String/Nullable
 === End Fields ===

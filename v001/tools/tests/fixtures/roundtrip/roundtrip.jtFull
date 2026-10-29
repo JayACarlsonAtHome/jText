@@ -1,0 +1,54 @@
+//File:    roundtrip.jtFull
+//Date:    2026-10-29
+//Purpose: jText Data File — the SQLite / PostgreSQL round-trip fixture
+//
+=== jText File ===
+ 1. ?# roundtrip.jtFull
+ 3. ?# Every hard case a database round trip must keep
+ 4. ?# 0.8
+ 7. ?# roundtrip_items
+
+=== Section: Items ===
+=== Template: Create Table ===
+[*
+** CREATE TABLE IF NOT EXISTS roundtrip_items (
+**     id        INTEGER PRIMARY KEY,
+**     name      VARCHAR(40) NOT NULL,
+**     category  VARCHAR(100),
+**     acquired  DATE,
+**     notes     TEXT
+** );
+*]
+=== Template: SQL Insert ===
+[*
+** INSERT INTO roundtrip_items (id, name, category, acquired, notes) VALUES ({1}, {2}, {3}, {4}, {5});
+*]
+=== Fields ===
+// the record id comes first
+ 1. /# id/Integer/Not Null                  # record id
+ 2. /# name/String/40/Not Null              # what it is
+ 3. /# category/String/100/Nullable         # a path, one value
+ 4. /# acquired/Date/Nullable               # 1900-01-01 when unknown
+ 5. /# notes/String/Nullable
+// fields end here
+=== End Fields ===
+=== Data ===
+# hand tools first
+ 1. ▮▌ 1▮O'Brien's hammer▮Hand Tools/Hammers/Claw▮2019-04-12▮pipe | and hash # kept ▌ claw hammer
+ 1. ▮▌ 2▮Drill▮Power Tools/Drills▮1900-01-01▮{NULL} ▌ date unknown
+ 1. ?# 3
+ 2. ?# Bar ▮ clamp
+// the category and date are on their own lines
+ 3. |# Hand Tools/Clamps|2021-07-15 # one line, two fields
+ 5. [* # a multiline note
+    ** first line
+    **   indented second
+    **
+    ** last line
+    *]
+
+ 1. |# 4|Tape measure||1900-01-01|
+# more to add
+=== End Data ===
+=== End Section ===
+=== End File ===
