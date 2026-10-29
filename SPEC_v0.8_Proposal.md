@@ -57,6 +57,8 @@ ASCII-only.
 
 ### A.3 Changes
 
+*(Merged into SPEC.md: Sections 2.3, 3, 3.1, 3.2, 6.1 and 10.)*
+
 **Section 3, token table.** `<formatter>`: "Exactly 2 Unicode characters (code
 points): `<splice><comment>`".
 

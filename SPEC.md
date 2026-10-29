@@ -512,7 +512,7 @@ Every non-structural line in a jText file follows this exact shape:
 | `<number>`         | An integer in the range 1–99, written as one or two ASCII digits             |
 | `.`                | A literal period immediately after the number                                |
 | `<whitespace>`     | One or more spaces or tabs                                                   |
-| `<formatter>`      | Exactly 2 characters: `<splice><comment>` (Section 3.1)                      |
+| `<formatter>`      | Exactly 2 Unicode characters (code points): `<splice><comment>` (Section 3.1) |
 | `<data>`           | The field's value, possibly empty (Section 3.3). A `'` is stored as `'`     |
 | `<comment-char>`   | The second marker character, with a space on each side (Section 3.2)        |
 | `<comment>`        | Free text to end of line. The text may be empty                              |
@@ -529,9 +529,13 @@ One character less than the old three-character marker, on every field line. A 1
 
 1. The first character is the record splicing character. On a compact line it splits fields. In a hierarchy it splits levels. It must differ from the comment character. A formatter whose two characters are the same, such as `##`, is a **structural validation error**.
 2. The second character is the comment character. A comment starts where that character has a space on each side (Section 3.2).
-3. Each character must be **printable ASCII**, **non-alphanumeric**, and **non-whitespace**. Non-ASCII or alphanumeric characters in either slot is a **structural validation error**.
+3. Each character is a single Unicode code point whose General Category is **Punctuation** (`Pc`, `Pd`, `Ps`, `Pe`, `Pi`, `Pf`, `Po`) or **Symbol** (`Sm`, `Sc`, `Sk`, `So`). Any other character (a letter, a digit, a combining mark, whitespace, a control or format character such as a zero-width joiner, a private-use, unassigned or surrogate code point) is a **structural validation error**. A formatter that is not valid UTF-8 is a structural validation error. Every printable non-alphanumeric ASCII character is Punctuation or Symbol, so every v0.7 formatter remains valid.
 4. There is no stand-in character. The file stores the data as entered. A `'` in a value remains a `'`.
 5. The marker `[]` is raw data. It names no splicing character and no comment character. Comments are not allowed on that line. The rest of the line, after the space that follows `[]`, is the field value unchanged. A `#`, a `|`, a quote, and trailing spaces stay in the value. The word `NULL` on a raw line is the four characters N, U, L, L, not an empty database value.
+6. Characters are compared by code point. No Unicode normalization is applied.
+7. "Two characters" and "the right two characters" of a longer marker count code points, not bytes.
+8. Writers should prefer characters that display one column wide in common monospace fonts. Emoji and other double-width characters are valid but break the column alignment of Section 3.7. They are accepted as written: neither readers nor the validator warn about them.
+9. `[` as the splicing character is reserved for special forms: `[]` (raw data) and `[*` (a multiline value). No other formatter may use `[` as its splice.
 
 Authors choose punctuation that is not doing other work in that line. Common conventions:
 
@@ -543,6 +547,7 @@ Authors choose punctuation that is not doing other work in that line. Common con
 | `/?`      | Hierarchical data split on `/` when the text contains `#`                   |
 | `*#`      | Hierarchical data split on `*`                                              |
 | `[]`      | Raw data. No splice and no comment. The rest of the line is the value      |
+| `▮▌`      | Machine-written compact records whose data is free text. `▮` (U+25AE) splits fields; `▌` (U+258C) is the comment character. Both are rare in real text |
 
 **Ingress of an old three-character marker.** A reader accepts a marker of three characters, `{1}{2}{3}`. On ingress it keeps only `{2}{3}`. `{1}` is dropped. The line is displayed with `{2}{3}`, and every later write emits `{2}{3}`. `#|#` arrives as `|#`. `^|#` arrives as `|#`. `#/#` arrives as `/#`. The data is not changed. A longer run is accepted the same way: the reader keeps the right two characters and drops what is in front. `#X##` ends in two `#` characters, so it is an error.
 
@@ -555,7 +560,7 @@ The formatter declares, for this line only:
 
 ### 3.2 Comment Marker
 
-A comment begins when the comment character appears with a **space** (ASCII 0x20) immediately on each side. The comment text follows the right-hand space and may be empty. End of line is not a space. A tab is not a space.
+A comment begins when the comment character appears with a **space** (ASCII 0x20) immediately on each side. The comment text follows the right-hand space and may be empty. End of line is not a space. A tab is not a space, and neither are other Unicode spaces (such as U+00A0): with `▮▌`, the marker is ` ▌ `.
 
 The parser scans the data from left to right. The first comment character with a space on each side opens the comment. Everything after the right-hand space, with leading whitespace stripped, is the comment. Trailing whitespace before that comment character is stripped from the data.
 
@@ -806,7 +811,7 @@ Structural rules govern parseability. A file that violates structural rules cann
 
 Structural errors include:
 
-- Malformed formatters (Section 3.1)
+- Malformed formatters (Section 3.1), including a character that is not Punctuation or Symbol, and a formatter that is not valid UTF-8
 - Empty segments in hierarchies (Section 3.3)
 - Line numbers outside the range 1–99 (Section 3.7)
 - Unmatched multiline sentinels (Section 5.2)
@@ -1075,8 +1080,8 @@ All other open questions from earlier drafts have been resolved.
 
 | Term | Definition |
 |------|------------|
-| **Splicing character** | The first character of a two-character formatter. Splits fields on a compact line and levels in a hierarchy. |
-| **Comment character** | The second character of a two-character formatter. Opens a comment when a space sits on each side of it. Without those spaces, inside the data, it stays data and produces a warning. |
+| **Splicing character** | The first character (one Unicode code point) of a two-character formatter. Splits fields on a compact line and levels in a hierarchy. |
+| **Comment character** | The second character (one Unicode code point) of a two-character formatter. Opens a comment when a space sits on each side of it. Without those spaces, inside the data, it stays data and produces a warning. |
 | **Formatter** | The 2-character declaration at the start of a line: `<splice><comment>`. A 3-character marker is accepted on ingress and kept as its last two characters. |
 | **Field** | A named, typed slot declared in a section's fields block |
 | **Record** | A set of field values within a data block, separated by blank lines |
@@ -1095,7 +1100,13 @@ All other open questions from earlier drafts have been resolved.
 
 ## 11. Changelog
 
-**v0.7** (current)
+**v0.8** (being merged from `SPEC_v0.8_Proposal.md`)
+- Section 3 / 3.1 (Part A): formatter characters are any Unicode Punctuation or Symbol code point, not only printable ASCII; rules 6-9 added (code-point comparison, code-point counting, one-column preference with wide characters accepted, `[` splice reserved for `[]` and `[*`); `▮▌` joins the common conventions.
+- Section 3.2: the comment marker's spaces are ASCII U+0020 only.
+- Section 2.3: `jtext_version` is written by every writer; readers warn on a missing, older, newer or invalid version and read on; saving upgrades it.
+- Section 6.1 and Glossary: malformed formatters include non-Punctuation/Symbol characters and invalid UTF-8; a formatter character is one code point.
+
+**v0.7**
 - Section 3.1: the marker is two characters, `<splice><comment>`. A three-character marker `{1}{2}{3}` is accepted on ingress and kept as `{2}{3}`. Display and output use those two characters. A new fields block allows only a two-character marker. There is no stand-in. A `'` is stored as `'`.
 - Section 3.2: a comment is the comment character with a space on each side. The same character in the data without a space on each side stays data and is a warning.
 - Section 6.2: a warning names the record id (the field 1 value) and the field number of the line. A missing record id is reported as missing.
