@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.023"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.024"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -127,6 +127,14 @@ public:
     void set_sql_dialect(std::string_view dialect);
     void set_table_name(std::string_view name);
     void set_auto_id(bool enabled);
+    // Full profile: write only the header lines that were set (and the version line), not
+    // today's date and the default Case and auto id. For a writer that copies a header it
+    // read, such as an import (jtext_from_xml), so the copy declares what the source did.
+    void set_exact_header(bool exact) noexcept { exact_header_ = exact; }
+    // Full profile: the comment on header line `number` (1 filename ... 8 auto id), and
+    // the comment lines standing before it (number 0: after the last header line).
+    void set_header_comment(std::size_t number, std::string_view text);
+    void add_header_comment_line(std::size_t number, std::string_view text);
 
     // Rows that cannot be written safely (see BadRowPolicy). Terminate is the default.
     void set_bad_row_policy(BadRowPolicy policy) noexcept { bad_row_policy_ = policy; }
@@ -167,7 +175,8 @@ public:
     //                                       parser requires a Fields block before the data)
     // finalize() closes every block still open, so a file never ends unclosed.
     void write_include(std::string_view kind, std::string_view path);
-    void write_template(std::string_view name, std::string_view body);
+    // A template; `comment` goes on its "[*" opener (SPEC 5).
+    void write_template(std::string_view name, std::string_view body, std::string_view comment = {});
     void begin_fields();
     void end_fields();
     void begin_data();
@@ -253,6 +262,11 @@ private:
     std::string sql_dialect_;
     std::string table_name_;
     bool auto_id_ = true;
+    bool exact_header_ = false;   // set_exact_header
+    bool case_set_ = false;       // set_case_mode was called
+    bool auto_id_set_ = false;    // set_auto_id was called
+    std::map<std::size_t, std::string> header_comments_;                      // by header line
+    std::map<std::size_t, std::vector<std::string>> header_comment_lines_;   // before a header line
 
     // Auto-batching state
     std::size_t auto_batch_size_ = 0;

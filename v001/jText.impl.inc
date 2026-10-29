@@ -913,10 +913,15 @@ void JTextWriter::set_filename(std::string_view name)
 }
 void JTextWriter::set_date(std::string_view d) { date_ = d; }
 void JTextWriter::set_purpose(std::string_view p) { purpose_ = p; }
-void JTextWriter::set_case_mode(CaseMode mode) { case_mode_ = mode; }
+void JTextWriter::set_case_mode(CaseMode mode) { case_mode_ = mode; case_set_ = true; }
 void JTextWriter::set_sql_dialect(std::string_view dialect) { sql_dialect_ = dialect; }
 void JTextWriter::set_table_name(std::string_view name) { table_name_ = name; }
-void JTextWriter::set_auto_id(bool enabled) { auto_id_ = enabled; }
+void JTextWriter::set_auto_id(bool enabled) { auto_id_ = enabled; auto_id_set_ = true; }
+void JTextWriter::set_header_comment(std::size_t number, std::string_view text) { header_comments_[number] = text; }
+void JTextWriter::add_header_comment_line(std::size_t number, std::string_view text)
+{
+    header_comment_lines_[number].emplace_back(text);
+}
 
 void JTextWriter::set_record_id_start(std::int64_t seed, std::int64_t step)
 {
@@ -987,13 +992,16 @@ void JTextWriter::write_header()
                                                   std::chrono::system_clock::now()));
         }
         if (!filename_.empty()) write_full_header_line(1, filename_);
-        write_full_header_line(2, date);
+        if (!exact_header_ || !date_.empty()) write_full_header_line(2, date);   // (comments: write_full_header_line)
         if (!purpose_.empty()) write_full_header_line(3, purpose_);
         write_full_header_line(4, jtext::kFormatVersion);
-        write_full_header_line(5, case_mode_ == CaseMode::Insensitive ? "Insensitive" : "Sensitive");
+        if (!exact_header_ || case_set_)
+            write_full_header_line(5, case_mode_ == CaseMode::Insensitive ? "Insensitive" : "Sensitive");
         if (!sql_dialect_.empty()) write_full_header_line(6, sql_dialect_);
         if (!table_name_.empty()) write_full_header_line(7, table_name_);
-        write_full_header_line(8, auto_id_ ? "true" : "false");
+        if (!exact_header_ || auto_id_set_) write_full_header_line(8, auto_id_ ? "true" : "false");
+        if (auto it = header_comment_lines_.find(0); it != header_comment_lines_.end())
+            for (const auto& t : it->second) *out_ << (t.empty() ? std::string("//") : "// " + t) << '\n';
         out_->put('\n');
         return;
     }
@@ -1001,12 +1009,17 @@ void JTextWriter::write_header()
                        sql_dialect_, table_name_, auto_id_);
 }
 
-// One numbered header line: the value with a formatter that cannot clash with it.
+// One numbered header line: the value with a formatter that cannot clash with it, after
+// its comment lines, with its comment.
 void JTextWriter::write_full_header_line(std::size_t number, std::string_view value)
 {
+    if (auto it = header_comment_lines_.find(number); it != header_comment_lines_.end())
+        for (const auto& t : it->second) *out_ << (t.empty() ? std::string("//") : "// " + t) << '\n';
+    const auto c = header_comments_.find(number);
+    const std::string comment = c == header_comments_.end() ? std::string{} : c->second;
     const std::vector<std::string> fields{std::string(value)};
-    const RowFormat fmt = row_format(0, 0, fields, false);
-    *out_ << format_row(number, fields, "", 2, fmt.sep, fmt.bookend);
+    const RowFormat fmt = row_format(0, 0, fields, !comment.empty());
+    *out_ << format_row(number, fields, comment, 2, fmt.sep, fmt.bookend);
 }
 
 void JTextWriter::close_full_section()
@@ -1026,13 +1039,15 @@ void JTextWriter::write_include(std::string_view kind, std::string_view path)
     *out_ << std::format("=== <#include#> {}: {} ===\n", kind, path);
 }
 
-void JTextWriter::write_template(std::string_view name, std::string_view body)
+void JTextWriter::write_template(std::string_view name, std::string_view body, std::string_view comment)
 {
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
     if (!body.empty() && body.back() == '\n') body.remove_suffix(1);
-    *out_ << std::format("=== Template: {} ===\n[*\n", name);
+    *out_ << std::format("=== Template: {} ===\n[*", name);
+    if (!comment.empty()) *out_ << " # " << comment;
+    out_->put('\n');
     for (;;) {
         const auto nl = body.find('\n');
         const auto line = body.substr(0, nl);

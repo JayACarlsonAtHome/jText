@@ -9,6 +9,7 @@
 #   jtext_close    : adds the closers a file is missing (cut off mid-write, or
 #                    written before closers were required), so it reads again.
 #   jtext_to_xml   : the canonical XML export (XML_EXPORT.md), the compare standard
+#   jtext_from_xml : that XML back into jText (either scope)
 #                    for every round trip.
 #   jtext_from_sql : DB -> jText. Reads a PostgreSQL (libpq) or SQLite table
 #                    and generates the four jText component files, every row and
@@ -85,6 +86,17 @@ if(JTEXT_BUILD_TOOLS)
         message(STATUS "jtext_to_ods / jtext_from_ods not built: they need libzip and libxml2")
     endif()
 
+    # jtext_from_xml (XML_EXPORT.md): the XML export back into jText, through libxml2.
+    if(TARGET LibXml2::LibXml2)
+        add_executable(jtext_from_xml jtext_from_xml.cpp)
+        target_include_directories(jtext_from_xml PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(jtext_from_xml PRIVATE jText::jText LibXml2::LibXml2)
+        target_compile_features(jtext_from_xml PRIVATE cxx_std_23)
+        set_target_properties(jtext_from_xml PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    else()
+        message(STATUS "jtext_from_xml not built: it needs libxml2")
+    endif()
+
     # Independent tests for the tools (registered only when tests are enabled).
     # - xtox_sql: a real functional run against the bundled workshop_tools fixture.
     # - from_sql: arg-validation always; a live DB round-trip only when psql + a
@@ -143,6 +155,22 @@ if(JTEXT_BUILD_TOOLS)
         endforeach()
 
         # Round trips through an OpenDocument spreadsheet, directly and through LibreOffice.
+        # XML import round trips: jText -> XML -> jText -> XML, byte-identical, both scopes.
+        if(TARGET jtext_from_xml)
+            foreach(fixture roundtrip/roundtrip.jtFull ods_declarations/ods_declarations.jtFull
+                            sample/sample.jtFull escape/escape.jtFull)
+                get_filename_component(fname ${fixture} NAME_WE)
+                foreach(scope full data)
+                    add_test(NAME tool_xml_round_trip_${fname}_${scope}
+                        COMMAND ${CMAKE_COMMAND} -DTOXML=$<TARGET_FILE:jtext_to_xml>
+                            -DFROMXML=$<TARGET_FILE:jtext_from_xml> -DSCOPE=${scope}
+                            -DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/${fixture}
+                            -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_xml_round_trip.cmake)
+                endforeach()
+            endforeach()
+        endif()
+
         if(TARGET jtext_to_ods)
             find_program(JTEXT_SOFFICE soffice)
             set(ods_args -DTOODS=$<TARGET_FILE:jtext_to_ods> -DFROMODS=$<TARGET_FILE:jtext_from_ods>

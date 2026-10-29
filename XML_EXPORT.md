@@ -5,8 +5,9 @@
 # jText — Canonical XML Export
 
 **Version:** 0.1 (draft), for jText format 0.8
-**Status:** Draft. Implemented: `jtext::to_xml` (`src/export/xml_export.hpp`) and the
-`jtext_to_xml` tool; the SQLite and PostgreSQL round-trip tests compare through it.
+**Status:** Draft. Implemented: `jtext::to_xml` (`src/export/xml_export.hpp`), the
+`jtext_to_xml` tool, and the import, `jtext_from_xml` (Section 6); the database and
+spreadsheet round-trip tests compare through it.
 
 ---
 
@@ -230,7 +231,19 @@ A difference is a lost or changed value or comment, a changed type, length or co
 or a lost or added record. The exporter never normalizes values (no trimming beyond what the jText
 reader already did, no case folding, no date reformatting), so it hides no difference.
 
-## 6. Open questions
+## 6. Import
 
-1. **Import.** This specification defines export only. An XML → jText import of `full`
-   scope would make XML a complete interchange format; it is not specified yet.
+`jtext_from_xml <in.xml> <out.jtext>` reads either scope back into jText, so XML is a
+complete interchange format: exporting the imported file gives the same XML, byte for byte
+(the reference tools test that on every fixture, in both scopes).
+
+- `full`: the header as declared (no date, Case or auto id is added that the export does
+  not hold; the version line is the writer's), every section with its name, includes,
+  templates (with their opener's comment), fields and records.
+- `data`: fields and records; the sections are named `records`, `records_2`, ...
+- A `<field>` becomes its declaration: the name, its `auto` designation or its type, the
+  length, `Not Null` / `Nullable`, `Not Empty`, and `NullDate(...)` when it is not the
+  default.
+- Every comment goes back on its line, and every comment line where it stood (4.6).
+- The header's `related_files` has no place in the jText writer yet; it is reported and
+  left out.
