@@ -54,7 +54,7 @@ struct formatter {
         return separator == U'[' && bookend == U']';
     }
 
-    // [* opens a multiline value (SPEC v0.8 Part C): "** " lines, then "*]".
+    // [* opens a multiline value (SPEC 5): "** " lines, then "*]".
     constexpr auto multiline() const -> bool {
         return separator == U'[' && bookend == U'*';
     }
@@ -180,7 +180,7 @@ enum class split_rule : std::uint8_t { hierarchy, fields };
 auto parse_line(std::string_view line, split_rule rule = split_rule::hierarchy)
     -> std::expected<parsed_line, parse_error>;
 
-//  Multiline values (SPEC v0.8 Part C)
+//  Multiline values (SPEC 5)
 //
 //     6. [* # stack trace          the opener (parse_line: multiline_opener)
 //        ** Traceback ...          a line of the value

@@ -463,7 +463,7 @@ static std::string_view field_text(const std::optional<std::string>& f)
 
 static std::string_view field_text(const std::string& f) { return f; }
 
-// The default formatter: U+25AE splits fields, U+258C starts the comment (SPEC v0.8 Part A).
+// The default formatter: U+25AE splits fields, U+258C starts the comment (SPEC 3.1).
 static constexpr char32_t kDefaultSplice  = U'\u25AE';
 static constexpr char32_t kDefaultComment = U'\u258C';
 
@@ -700,7 +700,7 @@ static std::string_view field_or_null(const std::optional<std::string>& f)
 
 static std::string_view field_or_null(const std::string& f) { return f; }
 
-// A row with a field that holds a newline (SPEC v0.8 Part C): the fields before it
+// A row with a field that holds a newline (SPEC 5): the fields before it
 // are a compact row, that field is a multiline value on its own numbered line, and
 // the fields after it continue at the next position. Value lines and the closer are
 // indented to the column of the "[*", so every marker lines up. The row's comment

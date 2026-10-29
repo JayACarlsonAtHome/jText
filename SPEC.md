@@ -4,8 +4,8 @@
 //
 # jText — Format Specification
 
-**Version:** 0.7 (draft)
-**Status:** Working draft — line grammar locked; file/section structure proposed
+**Version:** 0.8 (draft)
+**Status:** Working draft. The reference library (canonical jText v001/v002) implements it
 **License:** Apache-2.0 (matches the jText project)
 
 ---
@@ -38,7 +38,7 @@ The format separates *creation* from *consumption*. Producers — whether human 
 
 **Principle 2: A jText file is a faithful representation of the data.**
 
-What was entered is what is stored. Parsers never fabricate values; tools never silently fill in missing data; readers never substitute defaults into the parsed representation. Substitutions, defaults, and sentinels manifest only in template-driven output, never in the file itself or the in-memory representation. This separation allows the same data to be emitted in different ways for different consumers without ever modifying the source file.
+What was entered is what is stored. Parsers never fabricate values; tools never silently fill in missing data; readers never substitute defaults into the parsed representation. Data stays data: a file holds text, never a null (Section 2.6.1). Substitutions, defaults, and sentinels manifest only in template-driven output, never in the file itself or the in-memory representation. This separation allows the same data to be emitted in different ways for different consumers without ever modifying the source file.
 
 A narrowly-scoped exception to Principle 2 is permitted for **cosmetic regularization** (Section 3.7): tools may normalize whitespace and line-number padding when saving, since this does not change the file's meaning. No other writer-side modification is permitted.
 
@@ -59,7 +59,7 @@ Every jText file — regardless of profile — begins with the **`//` filesystem
 | **Light** | `//File:` … `//` then `# JText File - created` | Manifests, summaries, hand-edited catalogs (`ts_store` `run_manifest.jtext`) |
 | **Full** | `=== jText File ===` (often after the same `//` wrapper) | Event logs, SQL template emission, `jtext_process` round-trips |
 
-Parsers accept **both** profiles. Writers should emit one profile consistently per file.
+Parsers accept **both** profiles. A file is one profile or the other, never a mix: a `===` marker in a light-profile file is a structural error, and a light file names its fields only through `# Fields:` includes (inline field definitions are the full profile's `=== Fields ===` block).
 
 #### 2.0.1 Light Profile (canonical for human-facing files)
 
@@ -89,6 +89,8 @@ The light profile uses a deliberate **`//` vs `#` contrast**:
 
  1. |# 1|OS_001|ssd|Smoke|2026-06-08T00:00:00Z|gcc|113|113|0
 
+-- End RunMeta --
+
 -- Scenarios --
 
 # Fields: tests/jtext_includes/run_manifest_scenarios_fields.jtFlds
@@ -96,16 +98,19 @@ The light profile uses a deliberate **`//` vs `#` contrast**:
  1. |# 1|TS_STORE_TEST_001_TS|gcc|binary|off|100|0.005|PASS|binary_logs/...
 
  1. |# 2|TS_STORE_TEST_002_TS|gcc|binary|off|100|0.005|PASS|binary_logs/...
+
+-- End Scenarios --
+-- EOF --
 ```
 
 Light-profile rules:
 
-- The `//` block is **required** on all `.jtext`, `.jtFlds`, `.jschma`, and `.sql` companions.
-- The `#` metadata block follows immediately after the closing `//` blank line.
-- Section banners use `-- name --` (not `=== Section: ===`).
-- Field schema is declared via `# Fields: <path>.jtFlds` (inline field definitions are the full profile's `=== Fields ===` block, §2.0.2); **not** repeated in row comments.
-- Line-number padding (§3.7) applies when a section has more than 9 numbered lines.
-- `-- EOF --` is optional.
+- Writers begin the file with the `//` block (Section 2.1); readers skip it.
+- The `#` metadata block follows: the magic line `# JText File - created <date>`, then the header keys of Section 2.3.
+- A section opens with `-- Name --` and **closes** with `-- End Name --`; the names must match. Sections do not nest.
+- The file **closes** with `-- EOF --`. After it come only blank lines and comments.
+- Inside a section: `# Fields: <path>.jtFlds` names the section's fields (not repeated in row comments); other lines starting with `#` or `//` are comments; blank lines end records (Section 2.6); everything else is a data line (Section 3), including multiline values (Section 5).
+- Line numbers are two columns wide (Section 3.7).
 
 #### 2.0.2 Full Profile (DB / high-throughput tooling)
 
@@ -116,12 +121,14 @@ The full profile adds `===` structural markers, optional emit templates, and exp
 <file header lines>
 
 === Section: <section name> ===
+=== <#include#> Schema: path.jschma ===
 === Template: <template name> ===
-<<< <sentinel>
-<template text with {N} placeholders>
-<sentinel>
+[*
+** <template text with {N} placeholders>
+*]
 === Fields ===
-<field declaration lines or === <#include#> Fields: path.jtFlds ===>
+<field declaration lines, or === <#include#> Fields: path.jtFlds ===>
+=== End Fields ===
 === Data ===
 <data lines>
 === End Data ===
@@ -130,21 +137,36 @@ The full profile adds `===` structural markers, optional emit templates, and exp
 === End File ===
 ```
 
-All `===` structural markers are **case-sensitive** and must match exactly. Whitespace around the markers is ignored. End markers are recommended but not required.
+All `===` structural markers are **case-sensitive** and must match exactly. Whitespace around the markers is ignored. **Every block closes** (Section 6.1): a block left open is a structural error, which is what a file cut off mid-write looks like, so a truncated file is never mistaken for a complete one.
 
-For full-profile files, `=== jText File ===` may serve as a magic line for content sniffing. Light-profile files are recognized by the `//File:` wrapper and `# JText File - created` line instead.
+| Opens | Closes with |
+|---|---|
+| `=== jText File ===` | `=== End File ===` |
+| `=== Section: name ===` | `=== End Section ===` |
+| `=== Fields ===` | `=== End Fields ===` |
+| `=== Data ===` | `=== End Data ===` |
+| `[*` (Section 5) | `*]` |
+
+- **Includes** `=== <#include#> <Kind>: <path> ===` may stand in a section before its Fields block or inside it. The kind is free text (`Fields`, `Schema`); the path is relative to the file. A `Fields` include supplies the section's field declarations.
+- Lines starting with `#` or `//` are comments anywhere in the file. After `=== End File ===` come only blank lines and comments.
+- `=== jText File ===` serves as a magic line for content sniffing. Light-profile files are recognized by `# JText File - created` instead.
+- Readers also accept a file that opens directly with `=== Section:` and has no header block (older ts_store logs). It has no `=== End File ===`. Writers always write the header.
+
+A file cut off mid-write, or written before closers were required, is closed by adding its missing closers: the reference tool `jtext_close FILE...` puts each where its block ends (`=== End Fields ===` before `=== Data ===`, a section's closer before the next section, everything still open at the end of the file), lists every line it added, and changes nothing else. `--check` only reports.
 
 ### 2.1 Filesystem Wrapper (`//` headers)
 
-**Required for all profiles and all companion files.** All `.jtext`, `.jtFlds`, `.jtinsrt`, `.jschma`, and generated `.sql` sidecars should begin with these lines (before any `#` metadata or `===` content). The first three lines + blank `//` are **required**; `//Related:` is **optional but strongly encouraged** when origin is known:
+**Written for all profiles and all companion files.** All `.jtext`, `.jtFlds`, `.jtinsrt`, `.jschma`, and generated `.sql` sidecars begin with these lines (before any `#` metadata or `===` content). Writers always emit the first three lines and the closing `//`; `//Related:` is **optional but strongly encouraged** when origin is known. Readers skip the block and do not require it:
 
 ```
-//File:    <full-or-relative-path>
+//File:    <the file's name>
 //Date:    YYYY-MM-DD
 //Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
 //Related: type=PostgreSQL table=workshop_tools   (optional)
 //
 ```
+
+`//File:` holds the file's name only, never a path: files and the projects that hold them move (a portable drive mounts at a different place on each OS), and a recorded path would go stale.
 
 The compact `//Related: type=... db=... table=...` form (user-specified convention) is a single line, easy to grep (`^//Related`), extensible with more keys, and replaces the older ad-hoc "Related Database --" / "Related Table --" style with something clean and consistent.
 
@@ -164,19 +186,19 @@ The file header captures metadata that applies to the whole file. In the **light
 
 The recognized file-header fields are:
 
-| # | Field          | Required | Notes                                                       |
-|---|----------------|----------|-------------------------------------------------------------|
-| 1 | filename       | yes      | The canonical name of this file                             |
-| 2 | date           | yes      | ISO 8601 recommended (`YYYY-MM-DD` or full datetime)        |
-| 3 | purpose        | yes      | Free-text description of what this file is for              |
-| 4 | jtext_version  | yes      | jText version the file is written to, e.g. `0.8` (see below) |
-| 5 | case_mode      | optional | `Insensitive` (default) or `Sensitive` — affects name lookups |
-| 6 | sql_dialect    | optional | e.g. `PostgreSQL`, `MySQL`, `SQLite` — informational only   |
-| 7 | table_name     | optional | Default table name; consumed by templates if desired        |
-| 8 | auto_id        | optional | `true` (default) or `false` — informational                 |
-| 9 | related_files  | optional | List of related files in a multi-file dataset (see Section 4) |
+| # | Field          | Written       | Notes                                                       |
+|---|----------------|---------------|-------------------------------------------------------------|
+| 1 | filename       | when known    | The file's name, never a path (as `//File:`, Section 2.1)   |
+| 2 | date           | always        | ISO 8601 recommended (`YYYY-MM-DD` or full datetime); the writer uses today when none is given |
+| 3 | purpose        | when given    | Free-text description of what this file is for              |
+| 4 | jtext_version  | always        | jText version the file is written to, e.g. `0.8` (see below) |
+| 5 | case_mode      | always        | `Insensitive` (default) or `Sensitive`. How values compare (filters, lookups), like a database collation; values are always kept as written |
+| 6 | sql_dialect    | when set      | e.g. `PostgreSQL`, `MySQL`, `SQLite` — informational only   |
+| 7 | table_name     | when set      | Default table name; consumed by templates if desired        |
+| 8 | auto_id        | always (full) | `true` (default) or `false` — informational                 |
+| 9 | related_files  | when given    | Related files in a multi-file dataset, split on the line's splice (Section 4) |
 
-Additional fields beyond this list are allowed and preserved by parsers; consumers ignore fields they don't recognize.
+Header lines split on their splice character into levels, as field declarations do (Section 3.3); only `related_files` has more than one. Line numbers beyond 9 are allowed; validators warn and ignore them.
 
 **Version.** `jtext_version` is a number, `major.minor` (`0.8`), compared part by part as numbers (`0.10` is newer than `0.8`). Writers always declare the version they write. A reader reads the file with its own rules and **warns**, never refuses, when the version is:
 
@@ -187,7 +209,7 @@ Additional fields beyond this list are allowed and preserved by parsers; consume
 
 Saving upgrades: a writer declares its own version, so a missing, older or invalid declaration becomes the current one. A save that keeps the rest of the file as written (replacing one section's data) also upgrades the declaration, as the file it keeps has already been read with the current rules. A newer declaration is never lowered.
 
-#### 2.2.1 File Header Example
+#### 2.3.1 File Header Example
 
 ```
 //File:    robot_arm_run_47.jText
@@ -217,20 +239,20 @@ Each section is a self-contained record set with its own field schema, its own o
 A section consists of (in order):
 
 1. A **section banner** — `=== Section: <name> ===`
-2. **Zero or more templates** — `=== Template: <name> ===` followed by a multiline block (Section 2.5)
-3. A **fields block** — `=== Fields ===` followed by field declaration lines *(required if the section has a data block)*
-4. A **data block** — `=== Data ===` followed by data lines, terminated by `=== End Data ===`
-5. A **section terminator** — `=== End Section ===` (optional)
+2. **Zero or more includes and templates** — `=== <#include#> <Kind>: <path> ===`, and `=== Template: <name> ===` followed by its body (Section 2.5)
+3. A **fields block** — `=== Fields ===`, field declaration lines or a `Fields` include, then `=== End Fields ===` *(required if the section has a data block)*
+4. A **data block** — `=== Data ===`, data lines, then `=== End Data ===`
+5. The **section closer** — `=== End Section ===` (required)
 
 **Structural rule:** the fields block is required whenever the data block is present. A section that opens a data block without first declaring its fields is a **structural validation error** — line numbers within the data block reference field positions declared in the fields block, so a data block without a fields block has no meaningful interpretation. A section with neither a fields block nor a data block (containing only templates, or completely empty) is structurally permissible but semantically unusual; the validator may surface it as a warning.
 
-**A section is one table.** The section name is the table's name. Header field 7, `table_name`, is only a default when a template does not name a table. The fields block is the only definition of the columns. `Create Table`, `SQL Insert`, and `SQL Insert - no id` are renderings of that block, not a second schema. Writers emit, in order: the section banner, the templates, the fields block, the data block, then the end markers.
+**A section is one table.** The section name is the table's name. Header field 7, `table_name`, is only a default when a template does not name a table. The fields block is the only definition of the columns. `Create Table`, `SQL Insert`, and `SQL Insert - no id` are renderings of that block, not a second schema. Writers emit, in order: the section banner, the includes and templates, the fields block, the data block, then the closers.
 
 Section names within a file **should be unique**. Duplicate section names produce a **warning** during validation but do not block parsing, saving, or use. That warning names the section and has no record id and no field number. How duplicates are interpreted (last-wins, first-wins, merge, error) is a consumer-side decision.
 
 ### 2.4 Fields Block
 
-Each line in the fields block declares one field. The line number is the field's position (1–99); the data part contains the field's name, type, optional length, and optional constraints, all hierarchically separated.
+Each line in the fields block declares one field. The line number is the field's position (1–99); the data part contains the field's name, type, optional length, and optional constraints, separated by the line's splice character (levels, Section 3.3).
 
 Field declaration syntax:
 
@@ -243,7 +265,8 @@ The name comes first. The segments after it may appear **in any order**, each ki
 - `<type>` — a type spelling from Section 2.4.1 (e.g. `String`, `Text`, `Integer`, `Bool`)
 - `<auto>` — an auto designation (Section 2.4.3), e.g. `AutoID` or `Identity(1,1)`; it implies an integer type
 - `<length>` — optional positive integer; validators may use this to detect over-length values (informational; consumers decide whether to enforce)
-- `<constraint>` — optional, `Not Null` or `Nullable` (default)
+- `<constraint>` — optional: `Not Null`, `Not Empty`, both, or `Nullable` (the default) (Section 2.4.2)
+- `<null date>` — optional, `Date` and `DateTime` fields only: `NullDate(YYYY-MM-DD)`, the date that stands for "no date" in this field (default `1900-01-01`; Section 2.6.1)
 
 A type or an auto designation is required. Whitespace around the separators is ignored, so declarations can be column-aligned (Section 2.4.4).
 
@@ -263,6 +286,7 @@ Example:
  4. /# level/String/20/Not Null              # debug/info/warn/error
  5. /# category/String/40/Nullable           # optional category tag
  6. /# payload/String/Nullable               # free-text description (unbounded)
+=== End Fields ===
 ```
 
 The inline comment may include the author's intended target type or any other free-text annotation; jText does not parse or interpret the comment.
@@ -291,10 +315,13 @@ This vocabulary is intentionally small. Authors who need richer typing handle it
 
 | Constraint | Meaning                                                           |
 |------------|-------------------------------------------------------------------|
-| `Not Null` | Every record must have a non-empty value for this field          |
-| `Nullable` | Missing or empty values are permitted (default if omitted)       |
+| `Not Null`  | The field may not hold `{NULL}` (Section 2.6.1)                  |
+| `Not Empty` | The field may not hold the empty string (an empty or missing line) |
+| `Nullable`  | Neither: the field may hold `{NULL}` and the empty string (default if omitted) |
 
-Future versions may add `Unique`, `Primary Key`, `Foreign Key`, and `Default` constraints. When added, they will follow the principles in Section 5.5 (Future-Feature Principles).
+`Not Null` and `Not Empty` are independent; a field that needs a real value declares both (`name/String/Not Null/Not Empty`). Field 1, the record id, is always both (Section 2.4.3).
+
+Future versions may add `Unique`, `Primary Key`, `Foreign Key`, and `Default` constraints. When added, they will follow the principles in Section 6.5 (Future-Feature Principles).
 
 #### 2.4.3 Record Id (Field 1)
 
@@ -309,7 +336,7 @@ Every section's **field 1 is its record id**. The rule is about position and typ
   | `AutoNumber`, `AutoID`, `AutoIncrement`, `Auto_Increment`, `Identity`, `Serial`, `SmallSerial`, `BigSerial` | integer ids from 1, step 1 |
   | `Identity(seed)`, `Identity(seed,step)` | integer ids from `seed`, step `step` (non-zero; may be negative) |
 
-- **Never null:** field 1 is required whether or not it says `Not Null`. Declaring it `Nullable`, or with a non-integer type (`String`, `Date`, `Bool`), is a semantic error.
+- **Never empty, never `{NULL}`:** field 1 is `Not Null` and `Not Empty` whether or not it says so. Declaring it `Nullable`, or with a non-integer type (`String`, `Date`, `Bool`), is a semantic error.
 - **Always present in the file:** a record without a field-1 value is a semantic error. When the incoming data has no id, the **producer must make one** while writing: the first generated id in a section is the seed (default 1), and each later one is the previous id plus the step, continuing past the largest id already written in that section (the smallest, for a negative step). Ids restart with each section, since each section is its own table.
 
 Examples:
@@ -320,7 +347,10 @@ Examples:
  1. /# recID/AutoID
  1. /# customer_id/Identity(1000,1)
  1. /# event_id/Number/Not Null/AutoNumber
+=== End Fields ===
 ```
+
+(Four alternatives for one field 1, shown together; a real block declares field 1 once.)
 
 **Uniqueness is recommended, not enforced.** Field 1 may be a foreign key (for example, a child table whose rows each carry the parent's id), so validators do not reject repeated ids. Producers **should** nevertheless give every row its own unique id whenever they can, so that field 1 can serve as the row's primary key and each row maps to exactly one database row. A common pattern keeps the unique row key in field 1 and any repeating identifiers in later fields:
 
@@ -330,6 +360,7 @@ Examples:
  2. /# version/Integer/Not Null      # list or data version
  3. /# option_id/Integer/Not Null    # stable id; repeats across versions
  4. /# code/Text/5/Not Null
+=== End Fields ===
 ```
 
 #### 2.4.4 Standard Drop-Down List
@@ -345,6 +376,7 @@ A **drop-down list** (the option lists behind combo boxes in a GUI or TUI) is a 
  5. /# Description /Text    / Not Null                   # longer description
  6. /# IsVisible   /Bool    / Not Null                   # hide an option without deleting it
  7. /# ListOrder   /Integer / Not Null                   # display order in the GUI/TUI
+=== End Fields ===
 ```
 
 - `row_id` is the record id (Section 2.4.3) and is unique: one row forever, never reused. The other identifiers (`version`, `option_id`) repeat by design.
@@ -369,6 +401,7 @@ Example data, one compact row per option:
  1. |# 1|1|0|-|No Value Selected|Yes|1
 
  1. |# 2|1|1|NAT|Natural Body|Yes|2
+=== End Data ===
 ```
 
 ### 2.5 Templates
@@ -386,24 +419,25 @@ A common pattern combines both:
 === Section: Customers ===
 
 === Template: Create Table ===
-<<< !!!CT!!!
-CREATE TABLE customers (
-    customer_id INTEGER PRIMARY KEY,
-    name VARCHAR(40) NOT NULL,
-    email VARCHAR(255)
-);
-!!!CT!!!
+[*
+** CREATE TABLE customers (
+**     customer_id INTEGER PRIMARY KEY,
+**     name VARCHAR(40) NOT NULL,
+**     email VARCHAR(255)
+** );
+*]
 
 === Template: SQL Insert ===
-<<< !!!SI!!!
-INSERT INTO customers (customer_id, name, email)
-VALUES ({1}, {2}, {3});
-!!!SI!!!
+[*
+** INSERT INTO customers (customer_id, name, email)
+** VALUES ({1}, {2}, {3});
+*]
 
 === Fields ===
  1. /# customer_id/Number/Not Null
  2. /# name/String/40/Not Null
  3. /# email/String/255/Nullable
+=== End Fields ===
 === Data ===
 ... records ...
 === End Data ===
@@ -414,9 +448,9 @@ The combination above lets a single emit operation produce both the schema-creat
 
 Notes:
 
-- Templates use the multiline block syntax of Section 5
+- A template's body is a multiline value (Section 5) opened by a bare `[*` on the line after its banner, without a line number
 - The template name appears after `=== Template:` on the banner line
-- `{N}` is replaced by the value of field N, formatted per the field's declared type
+- `{N}` is replaced by the value of field N, formatted per the field's declared type (Section 2.4.1). A field holding exactly `{NULL}` is emitted as `NULL`, unquoted, whatever its type (Section 2.6.1)
 - All other text in the template is emitted literally, including newlines
 
 **Templates support `{N}` substitution only.** No modifiers, filters, or transformations. This is a deliberate design choice (Section 1.2): jText is target-agnostic, so it does not implement target-specific formatting features. Authors who need richer formatting handle it either in their template's target language (e.g., SQL functions like `UPPER()`, `COALESCE()`), through pre-processing of the data, or with a custom emitter.
@@ -431,49 +465,31 @@ Template error cases:
 
 Each line in the data block represents one field's value for the current record. The line number references the field at the corresponding position in the fields block (e.g., line `3.` provides a value for the field declared at position 3). The line number is **always a field position (1–99), never a record identifier**; a record is identified by its field 1 value (Section 2.4.3).
 
-A complete record uses field numbers 1 through N (where N is the field count); a partial record may skip field numbers. Records are separated by a **blank line** within the data block.
+A complete record uses field numbers 1 through N (where N is the field count); a partial record may skip field numbers. Records are separated by a **blank line** within the data block (or within a light-profile section).
+
+**Data stays data.** In a data line, the splice character separates **field values** (a compact row, Section 2.6.3), never the levels of one value. A path such as `Hand Tools/Hammers/Claw` is ordinary text: write it with a formatter whose splice it does not contain, `3. ?# Hand Tools/Hammers/Claw`. Splitting into levels happens only in the Fields block and the file header (Section 3.3).
 
 A "blank line" for separation purposes is a line containing zero characters or only whitespace characters. Lines containing comments without data still count as content, not as separators.
 
-#### 2.6.1 Empty vs. Missing
+#### 2.6.1 Values: text, empty, `{NULL}`
 
-jText distinguishes two distinct states for a field's value, and the distinction is preserved faithfully (per Principle 2):
+A jText file holds **no nulls**. Every field value is text, and the distinction the author makes is preserved faithfully (Principle 2):
 
-- **Missing** — the field's line does not appear in the record. The record proceeds from a lower-numbered field directly to a higher-numbered field with the missing number(s) skipped.
-- **Empty** — the field's line appears, but the data portion contains no characters (e.g., `1. -#` or `1. -# # comment`).
+- **Empty** — the field's line has no data (`3. ?#`), or the field's line does not appear in the record at all (a **missing** field). Both are the empty string, for every type.
+- **`{NULL}`** — the author typed the six characters `{NULL}`. In the file and in every reader it is that text: read, edited and saved like any other value, also inside a compact row (`|{NULL}|`). It becomes a real `NULL` only on the way into SQL: template emission (Section 2.5) writes a field holding exactly `{NULL}` as `NULL`, unquoted.
+- The words `NULL`, `null` and `\N` are ordinary text, in the file and in SQL.
 
-These states are **semantically distinct** for `String` fields and **semantically equivalent** for `Number` and `Date` fields:
+| Field holds | Template emission (any type) |
+|-------------|------------------------------|
+| A value | Formatted per its type (Section 2.4.1) |
+| Empty, or missing | `''` |
+| `{NULL}` | `NULL` |
 
-| Field state | String (Nullable) | Number (Nullable) | Date (Nullable) |
-|-------------|-------------------|-------------------|-----------------|
-| Value present | Quoted value | Raw value | Quoted ISO value |
-| Empty (line, no data) | Emit `''` (empty string) | Emit `NULL` | Emit `NULL` |
-| Missing (no line) | Emit `NULL` | Emit `NULL` | Emit `NULL` |
+**A date field always holds a date.** A `Date` or `DateTime` field never holds `{NULL}` or the empty string: where there is no date, writers (and editors) fill in the field's null date, `NullDate(...)` from its declaration or `1900-01-01` (`1900-01-01 00:00:00` for `DateTime`). It is stored in the file as that date and emitted like any other. Validators report an empty or `{NULL}` date field as an error.
 
-For `Not Null` fields, both empty and missing are **semantic validation errors** regardless of type.
+Type checks apply to other values that are neither empty nor `{NULL}`. An empty `Number`, `Integer`, `GST` or `Bool` field is emitted as `''`, which a database may refuse for such a column: write a value or `{NULL}` there. `Not Null` forbids `{NULL}`, and `Not Empty` forbids the empty string (Section 2.4.2).
 
-The rationale: an empty string (`''`) is a meaningful value for textual data — it represents "deliberately blank, recorded as such." For numeric and date data, there is no analogous "empty number" or "empty date"; absence of a value is always NULL.
-
-##### 2.6.3 ts_store Compact Data Rows (compatibility variant)
-
-For high-volume logs from ts_store, a compact single-line-per-record form is supported for the Data block content (after any Templates/Fields/ includes):
-
-```
-1. |# <id>|<f2>|...|<fN>
-```
-
-- The formatter `|#` declares the compact style: splice `|`, comment `#`. The legacy spelling `#|#` is the same pair and is accepted on read.
-- `|` is the record splicing character.
-- The number before `.` is a **field position**, as on every data line: the position of the first value on the line. A full record therefore starts at `1.`, and its first value is field 1, the record id (Section 2.4.3). A row starting at `k.` carries fields k, k+1, ...; values past the last declared field are an error.
-- The line parser splits the tail on `|` into the hierarchy (values).
-- Each compact row is one record; rows are separated by a blank line like any other record.
-
-Null vs empty:
-- Empty string field: `||` (adjacent separators).
-- Null field: `|\x1F|`  (U+001F INFORMATION SEPARATOR ONE, Unit Separator, as the field content).
-  This allows `||` and `||` (with embedded control) to look similar on the surface while distinguishing null from empty string for roundtrips and fidelity.
-
-This form is produced by ts_store for efficiency; the jText tools accept it when a Fields include or block has been seen (the field count is known for validation).
+Old files may hold U+001F (Unit Separator), the v0.7 null marker in a compact row. Readers take it as `{NULL}`, and writers write `{NULL}`.
 
 #### 2.6.2 Data Block Example
 
@@ -494,7 +510,21 @@ This form is produced by ts_store for efficiency; the jText tools accept it when
 === End Data ===
 ```
 
-The second record above omits field 5 (category). Since `category` is declared `Nullable`, this is valid; the template emits `NULL` for that position.
+The second record above omits field 5 (category): its value is empty, and a template emits `''` for it.
+
+#### 2.6.3 Compact Rows
+
+A record, or a run of its fields, may be written on one line, the splice character separating the values:
+
+```
+ 1. ▮▌ 42▮sensor.imu▮roll=0.01 pitch=0.02▮1700000000000042
+ 1. |# 1|Stanley Hammer|Hand Tools/Hammers/Claw|2019-04-12
+```
+
+- The number before `.` is a **field position**, as on every data line: the position of the first value on the line. A whole record starts at `1.`, and its first value is field 1, the record id (Section 2.4.3). A row starting at `k.` carries fields k, k+1, ...; values past the last declared field are an error.
+- Every splice character splits, and each piece fills the next field: a compact row is per-field lines written on one line. An empty value is two adjacent splices (`||`); a trailing splice ends with an empty value. Each value is trimmed of surrounding whitespace.
+- Any formatter works. `▮▌` is the writers' default (Section 3.1); `|#` is common in hand-written files.
+- A record may mix forms: a compact row from `1.`, then a multiline value on its own numbered line (Section 5; it cannot be part of a row), then the record continues at the next field. Records are separated by a blank line as always.
 
 ---
 
@@ -517,11 +547,15 @@ Every non-structural line in a jText file follows this exact shape:
 | `<comment-char>`   | The second marker character, with a space on each side (Section 3.2)        |
 | `<comment>`        | Free text to end of line. The text may be empty                              |
 
-**Each line carries its own formatter.** Different lines in the same block (Fields, Data, or Template) may use different formatters. The formatter is a property of the line, not of the section or the block.
+**Each line carries its own formatter.** Different lines in the same block may use different formatters. The formatter is a property of the line, not of the section or the block.
+
+Two formatters are special forms: `[]` (raw data, Section 3.1 rule 5) and `[*` (a multiline value, Section 5).
 
 ### 3.1 The Formatter
 
 The formatter is exactly two characters in the shape `<splice><comment>`.
+
+A formatter character may be any Unicode punctuation or symbol, not only ASCII. The format never escapes: when data holds a structural character, the author picks a different one for that line (Section 1). With only ASCII punctuation to pick from, machine producers that write free text, such as event logs, keep running into their own structural characters: `|` appears in shell commands, `#` in "order #5" and "C#". `▮` (U+25AE) and `▌` (U+258C) almost never occur in real text, so they are the writers' default.
 
 One character less than the old three-character marker, on every field line. A 10 million row table saves 10 million bytes when each record is one compact line, and that many bytes again for every extra field line. The saving is why new text is two characters, and why ingress drops the first character of an old three-character marker instead of keeping it.
 
@@ -541,13 +575,15 @@ Authors choose punctuation that is not doing other work in that line. Common con
 
 | Formatter | Typical use                                                                 |
 |-----------|-----------------------------------------------------------------------------|
-| `?#`      | Flat text. The comment character is `#`. A line with no `?` in the data is one value |
-| `/#`      | Hierarchical data, split on `/`                                             |
+| `▮▌`      | The writers' default on every line they write. `▮` (U+25AE) splits; `▌` (U+258C) is the comment character. Both are rare in real text |
+| `?#`      | One value, such as a path. The comment character is `#`                     |
+| `/#`      | Field declarations (`name/Type/Not Null`) and header lists, split on `/`    |
 | `|#`      | Compact record, fields split on `\|`                                        |
-| `/?`      | Hierarchical data split on `/` when the text contains `#`                   |
-| `*#`      | Hierarchical data split on `*`                                              |
+| `*#`      | Compact record split on `*`, when the values contain `/` and `\|`           |
 | `[]`      | Raw data. No splice and no comment. The rest of the line is the value      |
-| `▮▌`      | Machine-written compact records whose data is free text. `▮` (U+25AE) splits fields; `▌` (U+258C) is the comment character. Both are rare in real text |
+| `[*`      | A multiline value (Section 5)                                               |
+
+**Writers.** Where the caller leaves the formatter to the writer, it uses `▮` as the splice and `▌` as the comment character, unless the line's data holds that character; then it uses the first ASCII punctuation character that is not in the data. A splice the caller did give that appears in the data would split a value, so the writer refuses the row (the reference writer ends the process or skips the row, by policy). A comment character the caller gave is kept.
 
 **Ingress of an old three-character marker.** A reader accepts a marker of three characters, `{1}{2}{3}`. On ingress it keeps only `{2}{3}`. `{1}` is dropped. The line is displayed with `{2}{3}`, and every later write emits `{2}{3}`. `#|#` arrives as `|#`. `^|#` arrives as `|#`. `#/#` arrives as `/#`. The data is not changed. A longer run is accepted the same way: the reader keeps the right two characters and drops what is in front. `#X##` ends in two `#` characters, so it is an error.
 
@@ -564,31 +600,33 @@ A comment begins when the comment character appears with a **space** (ASCII 0x20
 
 The parser scans the data from left to right. The first comment character with a space on each side opens the comment. Everything after the right-hand space, with leading whitespace stripped, is the comment. Trailing whitespace before that comment character is stripped from the data.
 
-The comment character **without** a space on each side is data. It does not open a comment, and it is not removed. Each data field that contains one or more such characters produces a **warning**. The warning names the record id and the field number (Section 6.2). `C#` warns when `#` is the comment character. The value stays `C#`.
+A comment character that is the **first character of the data**, followed by a space or the end of the line, also opens a comment. The space between the formatter and it is padding for the reader; nothing stands before it, so the value is the empty string. ` 4. ?# # Note` holds an empty field 4 with the comment `Note`. Only that first comment character is the indicator: the rest of the line is the comment, so ` 4. ?# # # Note` has the comment `# Note`.
+
+Anywhere else, the comment character **without** a space on each side is data. It does not open a comment, and it is not removed. Each data field that contains one or more such characters produces a **warning**. The warning names the record id and the field number (Section 6.2). `C#` warns when `#` is the comment character. The value stays `C#`.
 
 The formatter's own characters are not data. The `#` in `|#` does not warn and does not open a comment, because it is not surrounded by spaces.
 
-### 3.3 Data and Hierarchies
+### 3.3 Splitting: Field Values and Levels
 
-The data is everything between the formatter and the comment marker (or the end of the line, if no comment is present).
+The data is everything between the formatter and the comment marker (or the end of the line, if no comment is present), with surrounding whitespace removed. If the data does not contain the splicing character, it is **one value**. A splicing character that does not appear in the data is legal (Section 3.5).
 
-If the data **contains the splicing character**, it is parsed as a **hierarchy**: the data is split on that character, producing a list of segments.
+If it does, the data is split on that character. What the pieces are depends on where the line is:
 
-If the data **does not contain the splicing character**, it is treated as a **flat single value**. (A splicing character that does not appear in the data is legal — see Section 3.5.) A compact record is this same split: one line, fields separated by the splicing character (Section 2.6.3).
+**In a data block** (and a light-profile section) the pieces are **field values** (a compact row, Section 2.6.3). Every splice splits; an empty value is allowed (`a||c` is three values, the second empty); each value is trimmed. Data stays data: the pieces are never the levels of one value (Section 2.6).
 
-**Hierarchy parsing rules:**
+**In the Fields block and the file header** the pieces are **levels** of one value: a field declaration's name, type, length and constraint (`id/Integer/Not Null`), or the file names of `related_files`.
 
 - **Leading separator** → cosmetic, ignored. `/A/B/C` → `["A", "B", "C"]`
 - **Trailing separator** → cosmetic, ignored. `A/B/C/` → `["A", "B", "C"]`
 - **Whitespace around segments** → trimmed. `A / B / C` → `["A", "B", "C"]`
-- **Empty segment anywhere in the hierarchy** → **structural validation error**. There is no meaningful interpretation of a nameless level in a hierarchy. This rule covers internal empty segments (`A//B`), all-separator data (`///`), and whitespace-only segments (`A/ /B`) uniformly.
+- **Empty segment anywhere** → **structural validation error**. There is no meaningful interpretation of a nameless level. This rule covers internal empty segments (`A//B`), all-separator data (`///`), and whitespace-only segments (`A/ /B`) uniformly.
 
 ### 3.4 Whitespace Handling
 
 - Whitespace between the period and the formatter: one or more (parsers accept; writers emit one or a configurable amount for alignment)
 - Whitespace between the formatter and the data: one or more (same rule)
-- Whitespace within flat data: preserved verbatim
-- Whitespace within hierarchical segments: trimmed per segment
+- Whitespace inside a value: preserved verbatim; whitespace before and after it: removed (a `[]` raw line keeps trailing spaces)
+- Whitespace around compact-row values and levels: trimmed per value
 - Whitespace around the comment character: a space on each side. End of line does not open a comment. A tab does not open a comment
 
 ### 3.5 Declared-But-Unused Splice
@@ -623,25 +661,31 @@ Compact record. `|` splits fields. The `#` in `|#` is not a comment:
  1. |# 1|Stanley Hammer|good              # the claw hammer
 ```
 
-Hierarchical data using `/` as the splicing character:
+A path is one value: `?` is not in it, so nothing splits:
 
 ```
- 1. /# Personal Tools/Drills/Battery      # 3-level hierarchy
+ 3. ?# Personal Tools/Drills/Battery      # the category, as written
 ```
 
-Hierarchical data using `*` , because the data contains `/`:
+A compact row split on `*`, because the values contain `/`:
 
 ```
- 1. *# 4/3 is four thirds*3/3 is three thirds*2/3 is two thirds  # fractions preserved
+ 1. *# 7*4/3 is four thirds*2/3 is two thirds  # fractions preserved
 ```
 
-Cosmetic leading and trailing splicing characters:
+The writers' default formatter, on a compact row:
 
 ```
- 1. /# /This is the top/SubSection1/SubSection2/    # decorative slashes ignored
+ 1. ▮▌ 8▮Stanley Hammer▮Hand Tools/Hammers/Claw ▌ the claw hammer
 ```
 
-→ parses to `["This is the top", "SubSection1", "SubSection2"]`
+A field declaration (levels), with cosmetic leading and trailing splicing characters:
+
+```
+ 2. /# /name/String/40/                   # decorative slashes ignored
+```
+
+→ parses to `["name", "String", "40"]`
 
 ### 3.7 Line-Number Padding
 
@@ -650,7 +694,9 @@ Field numbers are constrained to the range **1 to 99** (a section may have up to
 - Single-digit numbers are preceded by one space: ` 1.`, ` 2.`, ..., ` 9.`
 - Double-digit numbers occupy both columns: `10.`, `11.`, ..., `99.`
 
-This keeps the periods in the same column across all lines in a section, providing a stable visual anchor for the reader.
+This keeps the periods in the same column across all lines in a section, providing a stable visual anchor for the reader. Writers use this form in every section, however few lines it has.
+
+Line numbers are right-aligned in two columns, so every line of a file spends the same width on its number. A 100th field position would make that three columns on every line, not only on the wide records: one more character per line, which adds up in long tables. A record of more than 99 fields is also past what a person reads as one record. Producers with wider rows split them into related tables (Section 4).
 
 Hand-edited files may have inconsistent padding (single-digit numbers with no leading space). Parsers accept this. Any tool that saves a jText file should **normalize** line numbers to the canonical 2-column form on output. This is the one writer-side cosmetic modification permitted under Principle 2.
 
@@ -674,6 +720,7 @@ A three-file dataset representing customers, their orders, and items within each
  1. ?# customers.jText                    # filename
  2. ?# 2026-05-11                         # date
  3. ?# Customer master records            # purpose
+ 4. ?# 0.8                                # jtext_version
  9. /# orders.jText/items.jText           # related_files
 
 === Section: Customers ===
@@ -681,6 +728,7 @@ A three-file dataset representing customers, their orders, and items within each
  1. /# customer_id/Number/Not Null         # primary key
  2. /# name/String/40/Not Null
  3. /# email/String/255/Nullable
+=== End Fields ===
 === Data ===
 ... records ...
 === End Data ===
@@ -694,6 +742,7 @@ A three-file dataset representing customers, their orders, and items within each
  1. ?# orders.jText                       # filename
  2. ?# 2026-05-11                         # date
  3. ?# Customer orders                    # purpose
+ 4. ?# 0.8                                # jtext_version
  9. /# customers.jText/items.jText        # related_files
 
 === Section: Orders ===
@@ -701,6 +750,7 @@ A three-file dataset representing customers, their orders, and items within each
  1. /# order_id/Number/Not Null            # primary key
  2. /# customer_id/Number/Not Null         # references customers.jText
  3. /# total/Number/Not Null
+=== End Fields ===
 === Data ===
 ... records ...
 === End Data ===
@@ -714,6 +764,7 @@ A three-file dataset representing customers, their orders, and items within each
  1. ?# items.jText                        # filename
  2. ?# 2026-05-11                         # date
  3. ?# Line items within orders           # purpose
+ 4. ?# 0.8                                # jtext_version
  9. /# customers.jText/orders.jText       # related_files
 
 === Section: OrderItems ===
@@ -722,6 +773,7 @@ A three-file dataset representing customers, their orders, and items within each
  2. /# order_id/Number/Not Null            # references orders.jText
  3. /# product/String/Not Null
  4. /# quantity/Number/Not Null
+=== End Fields ===
 === Data ===
 ... records ...
 === End Data ===
@@ -757,44 +809,47 @@ Values are stored as entered. A `'` in a field stays a `'`. A live insert or upd
 
 ## 5. Multiline Data
 
-When a single field's value spans multiple lines (a stack trace, a JSON payload, a code snippet, a template body), the standard one-line grammar cannot represent it. Multiline data uses a **sentinel-bracketed block**.
-
-### 5.1 Multiline Syntax
-
-A multiline field consists of:
-
-1. An **opener line**: the field number, period, whitespace, and the literal token `<<<` followed by a **sentinel string** chosen by the author
-2. Any number of **content lines** — verbatim, no interpretation
-3. A **closer line**: the same sentinel string
+When a single field's value spans multiple lines (a stack trace, a JSON payload, a code snippet, a template body), it is written as a **multiline value**. Every line of the value carries its own marker. A record whose payload (field 6) is a stack trace:
 
 ```
- 1. <<< !!!END!!!
-This is the first line of multi-line data.
-It can contain anything: /, #, $, /etc/passwd, even === Section: foo ===.
-The only forbidden content is a line whose entire content is the sentinel.
-!!!END!!!
+ 1. |# 42|7|3|0x0000000000010002|worker.error
+ 6. [* # stack trace from worker 3
+    ** Traceback (most recent call last):
+    **   File "main.py", line 12, in <module>
+    ** ValueError: bad input
+    *]
+ 7. |# 1700000000000042
 ```
 
-Templates (Section 2.5) use the same multiline block syntax; the field number is omitted because the template is attached to its section banner rather than a numbered field.
+| Marker | Line |
+|---|---|
+| `[*` | Opens the value, on the numbered line of its field. An optional comment follows, introduced by `#` |
+| `**` | One line of the value |
+| `*]` | Closes the value. Nothing follows it |
 
-### 5.2 Sentinel Rules
+The number is the field position (Section 2.6), as on every line: field 6 here. Field 1 is the record id (Section 2.4.3), always an integer, so it is never multiline.
 
-- The sentinel is chosen by the author, per-block
-- It must be **at least 3 characters**, **printable ASCII**, and **not contain whitespace**
-- The closer line must match the opener's sentinel **exactly** (byte-for-byte)
-- The sentinel may not appear as a complete line within the content
+### 5.1 Rules
 
-If the author's content might contain a chosen sentinel, they pick a different sentinel for that block (`@@@DONE@@@`, `~~~STOP~~~`, etc.). The same "author picks characters that aren't in the data" principle as the line-level grammar.
+1. Exactly one space separates a marker from what follows it. The space belongs to the marker: `**   File` holds `  File`. Everything after it is the value's line, verbatim, trailing spaces included.
+2. `**` alone (or followed by one space) is an empty line of the value.
+3. `[*` sits where a formatter would; `[` as a splice is reserved for it and for `[]` (Section 3.1, rule 9). Content lines and the closer carry no line number.
+4. **Alignment.** Writers indent content lines and the closer to the column of the opener's marker, so every marker (`|#`, `[*`, `**`, `*]`) is in one column and every value starts in the next. Line numbers are two columns (Section 3.7), so that column is always the fifth. Readers ignore leading spaces and tabs before `**` and `*]`: alignment is cosmetic, and a hand edit that is out of line still reads.
+5. A template (Section 2.5) opens with a bare `[*` on the line after its banner.
+6. Comments are only on the opener. A `**` line is all value.
+7. A value open at the end of the file, or followed by any line that is not `**` or `*]`, is a missing closer (Section 6.1).
+8. A multiline value fills exactly one field, the one its line number names. A compact row is one line, so it cannot hold one: a record with a multiline value breaks there. The fields before it are a compact row from `1.`, whose values fill fields 1 to k-1; the multiline value is field k, on its own numbered line; after its closer the record continues at field k+1 (a per-field line or a compact row numbered k+1), or a blank line ends the record. Writers calculate those positions from the fields each line fills.
+9. Writers write a value that contains a newline as a multiline value. No choice is needed: the markers never collide with the data.
+10. Editors and viewers may show the marker and the line in separate columns; the space is part of the text form only. In the text form the closer is always alone on its line. An editor may show the `*]` marker on the value's last line instead, beside that line's data; writing out splits that row back into `** <data>` and a bare `*]`.
 
-### 5.3 Comments on Multiline Fields
+### 5.2 Why
 
-Comments are not supported within a multiline block. If a comment is desired, place it on the opener line *after* the sentinel:
+- **No sentinel to choose, no collision.** Every value line is prefixed, so the value can contain anything, including a line that reads `*]` or `=== End File ===`.
+- **Every line says what it is,** in keeping with the per-line grammar (Section 1). `grep '^ *\*\*'` finds every value line.
+- **It closes like every other block**, so a cut-off value is detected and `jtext_close` can close it.
+- **`*` starts nothing else.** Data lines start with a number, comments with `#` or `//`.
 
-```
- 1. <<< !!!END!!!     # captured stack trace from worker thread 3
-... content ...
-!!!END!!!
-```
+Older files used `<<< SENTINEL` blocks. `jtext_close` rewrites them line for line (a template's opener becomes a bare `[*`); readers no longer accept them.
 
 ---
 
@@ -802,7 +857,7 @@ Comments are not supported within a multiline block. If a comment is desired, pl
 
 A jText file is **valid** when both of the following hold:
 
-1. **Structural validity** — the grammar of Sections 2, 3, and 5 is satisfied
+1. **Structural validity** — the grammar of Sections 2, 3, and 5 is satisfied; a file that is not structurally valid does not parse
 2. **Semantic validity** — the data in each section satisfies the field types and constraints declared in that section's fields block
 
 ### 6.1 Structural Validation
@@ -812,14 +867,18 @@ Structural rules govern parseability. A file that violates structural rules cann
 Structural errors include:
 
 - Malformed formatters (Section 3.1), including a character that is not Punctuation or Symbol, and a formatter that is not valid UTF-8
-- Empty segments in hierarchies (Section 3.3)
+- Empty segments in levels (Section 3.3)
 - Line numbers outside the range 1–99 (Section 3.7)
-- Unmatched multiline sentinels (Section 5.2)
-- Mismatched or impossible structural markers (Section 2)
+- A block not closed before the next block, the file's closer, or the end of the file (Sections 2.0.1, 2.0.2, 5): a missing `=== End Fields ===`, `=== End Data ===`, `=== End Section ===`, `=== End File ===`, `-- End Name --`, `-- EOF --` or `*]`
+- `-- End Name --` that does not match the open section
+- Anything other than blank lines and comments after the file's closer
+- A marker where it does not belong, and any `===` marker this version does not define
+- A data line outside a Data block (full profile) or outside a section (light profile)
+- A `===` marker in a light-profile file
 - Data block in a section without a preceding fields block (Section 2.3)
 - Template placeholders referencing field numbers outside the section's field range (Section 2.5)
 
-**Unknown structural markers** (e.g., a future `=== Manifest: foo ===` marker that this spec version does not define) produce a **warning** rather than an error. The parser skips the unrecognized section and continues. This preserves forward compatibility.
+**Unknown structural markers are errors.** A reader cannot tell a marker it does not know from a damaged one, so it refuses the file rather than guess. A future marker therefore comes with a new `jtext_version` (Section 2.3).
 
 ### 6.2 Semantic Validation
 
@@ -829,14 +888,17 @@ Semantic errors include:
 
 - Field value does not match its declared type (e.g., non-numeric value in a `Number` field)
 - Field value exceeds its declared length bound
-- `Not Null` field is missing or empty in some record
+- `Not Null` field holds `{NULL}`, or `Not Empty` field is empty or missing, in some record (Section 2.4.2)
 - Field 1 (the record id) is declared with a non-integer type or as `Nullable`, is missing or empty in some record, or holds a value that is not an integer (Section 2.4.3)
 
 Semantic **warnings** (non-blocking) include:
 
 - A comment character in a data field without a space on each side (Section 3.2). The character stays in the data.
 - Duplicate section names within a file (Section 2.3)
-- Unknown file-header field names (Section 2.2)
+- A section with no records
+- Unknown file-header line numbers (Section 2.3)
+- A missing, older, newer or invalid `jtext_version` (Section 2.3)
+- A `GST` value past one year, and past one year plus three leap seconds (Section 2.4.1)
 - Other non-fatal anomalies that consumers may choose to surface or ignore
 
 **Every warning names the record and the field that triggered it.**
@@ -875,10 +937,10 @@ The intermediate format is not specified by jText. Producers define their own.
 
 ### 6.5 Future-Feature Principles
 
-When future versions add features such as `Default`, `Unique`, `Primary Key`, `Foreign Key`, or per-field NULL sentinels, those features will obey the following principles:
+When future versions add features such as `Default`, `Unique`, `Primary Key`, or `Foreign Key`, those features will obey the following principles:
 
 1. **Faithful representation** — features must not cause the parsed in-memory data to differ from what is recorded in the file. Defaults and sentinels manifest only at emission time, never during parse or write.
-2. **Emission-only substitutions** — `Default` values, `null=` sentinels, and similar substitutions apply when a template's placeholder is resolved, not when data is read from or written to the file.
+2. **Emission-only substitutions** — `Default` values and similar substitutions apply when a template's placeholder is resolved, not when data is read from or written to the file, as `{NULL}` becomes `NULL` only there (Section 2.6.1).
 3. **Backward compatibility** — new constraints and field-declaration features must parse cleanly on older readers (which may emit warnings about unknown constraint names but must not fail).
 
 ---
@@ -910,29 +972,26 @@ The `.jCheck` file is itself a jText file. It contains a single section named `V
  1. ?# contacts.jCheck                       # filename
  2. ?# 2026-05-11T14:32:01                   # date
  3. ?# Validation metadata for contacts.jText # purpose
+ 4. ?# 0.8                                   # jtext_version
 
 === Section: Validation ===
 === Fields ===
- 1. /# key/String/Not Null
- 2. /# value/String/Not Null
+ 1. /# id/Integer/Not Null
+ 2. /# key/String/Not Null
+ 3. /# value/String/Not Null
+=== End Fields ===
 === Data ===
- 1. ?# target_file
- 2. ?# contacts.jText
+ 1. |# 1|target_file|contacts.jText
 
- 1. ?# target_hash_algorithm
- 2. ?# xxh3-128
+ 1. |# 2|target_hash_algorithm|xxh3-128
 
- 1. ?# target_hash
- 2. ?# a3f1b0c84e9d7a2c5f8e0b1d6a7c4e9f
+ 1. |# 3|target_hash|a3f1b0c84e9d7a2c5f8e0b1d6a7c4e9f
 
- 1. ?# validated_at
- 2. ?# 2026-05-11T14:32:01.000Z
+ 1. |# 4|validated_at|2026-05-11T14:32:01.000Z
 
- 1. ?# validator_version
- 2. ?# jtext-validator-0.4
+ 1. |# 5|validator_version|jtext-validator-0.4
 
- 1. ?# result
- 2. ?# passed
+ 1. |# 6|result|passed
 === End Data ===
 === End Section ===
 
@@ -988,50 +1047,48 @@ As an optimization, tools **may** support a `.jCheck/` subdirectory containing a
 
 === Section: Hand Tools ===
 === Template: Create Table ===
-<<< !!!CT!!!
-CREATE TABLE tools (
-    id        INTEGER PRIMARY KEY,
-    name      VARCHAR(40) NOT NULL,
-    category  VARCHAR(100) NOT NULL,
-    acquired  DATE,
-    notes     TEXT
-);
-!!!CT!!!
+[*
+** CREATE TABLE tools (
+**     id        INTEGER PRIMARY KEY,
+**     name      VARCHAR(40) NOT NULL,
+**     category  VARCHAR(100) NOT NULL,
+**     acquired  DATE,
+**     notes     TEXT
+** );
+*]
 
 === Template: SQL Insert ===
-<<< !!!SI!!!
-INSERT INTO tools (id, name, category, acquired, notes)
-VALUES ({1}, {2}, {3}, {4}, {5});
-!!!SI!!!
+[*
+** INSERT INTO tools (id, name, category, acquired, notes)
+** VALUES ({1}, {2}, {3}, {4}, {5});
+*]
 
 === Template: CSV ===
-<<< !!!CSV!!!
-{1},{2},{3},{4},{5}
-!!!CSV!!!
+[*
+** {1},{2},{3},{4},{5}
+*]
 
 === Fields ===
  1. /# id/Number/Not Null                  # primary key, integer
  2. /# name/String/40/Not Null             # tool name
- 3. /# category/String/100/Not Null        # hierarchical category path
- 4. /# acquired/Date/Nullable              # acquisition date if known
+ 3. /# category/String/100/Not Null        # category path, one value
+ 4. /# acquired/Date/Not Null             # 1900-01-01 when unknown
  5. /# notes/String/Nullable               # free-text notes
+=== End Fields ===
 === Data ===
  1. ?# 1
  2. ?# Stanley Hammer
- 3. /# Hand Tools/Hammers/Claw
+ 3. ?# Hand Tools/Hammers/Claw
  4. ?# 2019-04-12
  5. ?# 16oz fiberglass handle
 
  1. ?# 2
  2. ?# DeWalt Drill DCD777
- 3. /# Power Tools/Drills/Cordless
+ 3. ?# Power Tools/Drills/Cordless
  4. ?# 2022-11-30
  5. ?# 20V MAX, brushless
 
- 1. ?# 3
- 2. ?# Klein Screwdriver Set
- 3. /# Hand Tools/Screwdrivers/Sets
- 5. ?# 11-piece, magnetic tips             # field 4 (acquired) omitted: Nullable, emits NULL
+ 1. ▮▌ 3▮Klein Screwdriver Set▮Hand Tools/Screwdrivers/Sets▮1900-01-01▮{NULL} ▌ date unknown, no notes
 === End Data ===
 === End Section ===
 
@@ -1053,16 +1110,16 @@ VALUES (1, 'Stanley Hammer', 'Hand Tools/Hammers/Claw', '2019-04-12', '16oz fibe
 INSERT INTO tools (id, name, category, acquired, notes)
 VALUES (2, 'DeWalt Drill DCD777', 'Power Tools/Drills/Cordless', '2022-11-30', '20V MAX, brushless');
 INSERT INTO tools (id, name, category, acquired, notes)
-VALUES (3, 'Klein Screwdriver Set', 'Hand Tools/Screwdrivers/Sets', NULL, '11-piece, magnetic tips');
+VALUES (3, 'Klein Screwdriver Set', 'Hand Tools/Screwdrivers/Sets', '1900-01-01', NULL);
 ```
 
 Note how:
 
 - The schema-creation SQL is generated from the same file as the data
 - `Number` type emits `1`, `2`, `3` without quotes
-- `String` type wraps values in single quotes
+- `String` type wraps values in single quotes; a category path is one value, because `?#` does not split on `/`
 - `Date` type wraps the date string in single quotes
-- The omitted `Nullable` `acquired` field in record 3 emits `NULL`
+- Record 3 is one compact row in the writers' default formatter. Its date is unknown, so `acquired` holds the null date `1900-01-01` (a date field always holds a date), and `notes` holds `{NULL}`, which emits `NULL`
 
 ---
 
@@ -1086,25 +1143,38 @@ All other open questions from earlier drafts have been resolved.
 | **Field** | A named, typed slot declared in a section's fields block |
 | **Record** | A set of field values within a data block, separated by blank lines |
 | **Section** | A self-contained record set with its own schema, optional templates, and data |
-| **Hierarchy** | A multi-level value, expressed by separator characters within the data |
-| **Multiline block** | A field value or template body that spans multiple lines, bracketed by author-chosen sentinels |
-| **Template** | A named multiline block in a section header containing literal text with `{N}` placeholders, used to emit each record (or each section) in some target format |
+| **Levels** | The parts of a field declaration or header line, split on the splice character. Data lines have no levels: their splice separates field values |
+| **Compact row** | A data line carrying several consecutive fields, separated by the splice character |
+| **Multiline value** | A field value or template body that spans multiple lines: `[*`, `**` lines, `*]` |
+| **`{NULL}`** | The text an author writes for "no value"; emitted as SQL `NULL`, stored as text |
+| **Template** | A named multiline value in a section's intro containing literal text with `{N}` placeholders, used to emit each record (or each section) in some target format |
 | **Sidecar** | A `.jCheck` file co-located with a source `.jText` file that caches validation results |
 | **Structural validity** | Conformance to the grammar rules; enforced at parse time |
 | **Semantic validity** | Conformance to the data rules declared by field types and constraints; checked on demand |
-| **Missing field** | A field whose data line does not appear in a record |
-| **Empty field** | A field whose data line appears but contains no data characters |
+| **Missing field** | A field whose data line does not appear in a record; its value is the empty string |
+| **Empty field** | A field whose data line appears but contains no data characters; the empty string |
 | **Multi-file dataset** | A set of related jText files linked by key references and declared in the `related_files` file-header field |
 
 ---
 
 ## 11. Changelog
 
-**v0.8** (being merged from `SPEC_v0.8_Proposal.md`)
-- Section 3 / 3.1 (Part A): formatter characters are any Unicode Punctuation or Symbol code point, not only printable ASCII; rules 6-9 added (code-point comparison, code-point counting, one-column preference with wide characters accepted, `[` splice reserved for `[]` and `[*`); `▮▌` joins the common conventions.
+**v0.8**
+- Section 3 / 3.1: formatter characters are any Unicode Punctuation or Symbol code point, not only printable ASCII; rules 6-9 added (code-point comparison, code-point counting, one-column preference with wide characters accepted, `[` splice reserved for `[]` and `[*`). `▮▌` is the writers' default formatter on every line; the writer falls back to ASCII punctuation only when the data holds `▮` or `▌`.
 - Section 3.2: the comment marker's spaces are ASCII U+0020 only.
-- Section 2.3: `jtext_version` is written by every writer; readers warn on a missing, older, newer or invalid version and read on; saving upgrades it.
-- Section 6.1 and Glossary: malformed formatters include non-Punctuation/Symbol characters and invalid UTF-8; a formatter character is one code point.
+- Sections 2.0.1, 2.0.2, 6.1: every block closes (`=== End Fields ===`, `=== End Data ===`, `=== End Section ===`, `=== End File ===`, `-- End Name --`, `-- EOF --`, `*]`); a block left open is a structural error. `jtext_close` adds missing closers. Unknown `===` markers are errors.
+- Section 5: multiline values are `[*`, `**` lines, `*]`, replacing `<<< SENTINEL` blocks and the `*** ^^^ ###` special block. Templates open with a bare `[*`.
+- Sections 2.6, 3.3: data stays data. In a data line the splice separates field values (a compact row); levels exist only in the Fields block and header. A path is one value on a line whose splice it does not contain.
+- Section 2.6.1: a file holds no nulls. Empty and missing are the empty string for every type; `{NULL}` is text that template emission writes as `NULL`. `NULL` and `\N` are ordinary text; the v0.7 U+001F marker is read as `{NULL}`.
+- Section 2.4.2: `Not Null` forbids `{NULL}`; the new `Not Empty` forbids the empty string. Field 1 is both.
+- Sections 2.4, 2.6.1: a `Date` or `DateTime` field always holds a date. Where there is none, writers store the field's null date: `NullDate(YYYY-MM-DD)` from its declaration, else `1900-01-01`.
+- Section 3.2: a comment character as the first character of the data, followed by a space, opens a comment; the value is empty.
+- Section 5.1: a multiline value fills one field; the record continues at the next field or ends.
+- Section 2.6.3: compact rows take any formatter, may start at any field position, and continue after a multiline value.
+- Section 2.3: `jtext_version` is written by every writer; readers warn on a missing, older, newer or invalid version and read on; saving upgrades it. The light profile writes `# jText Version:`.
+- Section 2.0: removed banner-less data rows and the light profile's undefined inline field block; a file is one profile or the other.
+- Section 2.1: `//File:` holds the file's name only.
+- Section 3.7: why field positions stop at 99; writers pad to two columns in every section.
 
 **v0.7**
 - Section 3.1: the marker is two characters, `<splice><comment>`. A three-character marker `{1}{2}{3}` is accepted on ingress and kept as `{2}{3}`. Display and output use those two characters. A new fields block allows only a two-character marker. There is no stand-in. A `'` is stored as `'`.
@@ -1159,5 +1229,5 @@ All other open questions from earlier drafts have been resolved.
 
 ---
 
-*End of jText Specification v0.7 (draft).*
+*End of jText Specification v0.8 (draft).*
 

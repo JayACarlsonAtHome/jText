@@ -556,7 +556,7 @@ int main() {
     }
 
     {
-        // Multiline values (SPEC v0.8 Part C): "[*" opens, "** " lines, a bare "*]".
+        // Multiline values (SPEC 5): "[*" opens, "** " lines, a bare "*]".
         using VK = jtext::value_line_kind;
         auto vl = [](std::string_view line) { return jtext::parse_value_line(line); };
         check(vl("    ** text")->kind == VK::content && vl("    ** text")->text == "text", "vl(\" ** text\")->kind == VK::content && vl(\" ** text\")->text == \"text\"");
