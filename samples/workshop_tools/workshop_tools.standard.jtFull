@@ -7,7 +7,7 @@
  1. #?# workshop_tools.standard.jtFull          # filename
  2. #?# 2026-10-18                              # date
  3. #?# Sample workshop tool inventory          # purpose
- 4. #?# 0.1                                     # jtext_version
+ 4. #?# 0.8                                     # jtext_version
  5. #?# Insensitive                             # case_mode
  6. #?# PostgreSQL                              # sql_dialect
  7. #?# workshop_tools                          # table_name

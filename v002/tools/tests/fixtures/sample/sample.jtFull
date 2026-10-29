@@ -7,7 +7,7 @@
  1. #?# sample.jtFull                              # filename
  2. #?# 2026-06-23                                 # date
  3. #?# Minimal valid sample for jtext_xtox_sql    # description
- 4. #?# 0.6                                        # jtext_version
+ 4. #?# 0.8                                        # jtext_version
 
 === Section: Sample ===
 

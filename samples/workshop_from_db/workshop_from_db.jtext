@@ -8,6 +8,7 @@
  1. #?# workshop_from_db.jtext
  2. #?# 2026-05-31
  3. #?# Data retrieved from PostgreSQL table workshop_tools
+ 4. #?# 0.8
 
 === Section: workshop_tools ===
 === Fields ===
