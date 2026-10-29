@@ -23,11 +23,11 @@
 
 1. #|# 2|canonical_dir|Qlite/v002/Qlite
 
-1. #|# 3|canonical_commit|b06b34b8896a
+1. #|# 3|canonical_commit|2f0ee6248a77
 
 1. #|# 4|canonical_dirty|No
 
-1. #|# 5|canonical_version|v002.013
+1. #|# 5|canonical_version|v002.015
 
 1. #|# 6|transform|none
 
@@ -60,7 +60,7 @@
 === Data ===
 1. #|# 1|include/Qlite/v002.hpp|include/Qlite/v002.hpp|7a8cc00784f52a7ccef1d596c5c9a97a970ce8150010e6d9cba84ca907bb522d|7a8cc00784f52a7ccef1d596c5c9a97a970ce8150010e6d9cba84ca907bb522d
 
-1. #|# 2|include/Qlite/v002/Database.body.hpp|include/Qlite/v002/Database.body.hpp|54bec21e52cb73c5bb13b4af1782ed762f52039b2511800a13f1e6f0c29c8c30|54bec21e52cb73c5bb13b4af1782ed762f52039b2511800a13f1e6f0c29c8c30
+1. #|# 2|include/Qlite/v002/Database.body.hpp|include/Qlite/v002/Database.body.hpp|15cc771e89a044822ff26d67a54633e7922d2ebf236d5deddd0dda86ee645b01|15cc771e89a044822ff26d67a54633e7922d2ebf236d5deddd0dda86ee645b01
 
 1. #|# 3|include/Qlite/v002/Database.hpp|include/Qlite/v002/Database.hpp|8b92e7a5ce72114de4f9421bb012450faa0307632eaadd5ba59ba69ae84b9ba7|8b92e7a5ce72114de4f9421bb012450faa0307632eaadd5ba59ba69ae84b9ba7
 

@@ -13,7 +13,7 @@
 
 // Package version, "major.minor": major = the v002 API line, minor = the revision.
 // Bump the minor on each small code change; a real (breaking) change moves the major.
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.013"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.015"; }
 
 // ---------------------------------------------------------------------------
 // Errors: each database throws its own type, all derived from Error.
@@ -163,7 +163,8 @@ template<typename T> struct from_text_t<std::optional<T>> {
 // mistake "none" for an id: get_top_one<std::optional<std::int64_t>>(db, "SELECT id ...", ...)).
 // A bool reads 1/0, t/f and true/false/yes/no (text_is_true); NULL is false. Values bind in
 // order. A genuine SQL / prepare error PROPAGATES (a malformed query must not read as a clean
-// "no row"). A bool right after sql is always `debug`: to bind a bool first, pass debug
+// "no row"). get_top_one_id is the long for an id: 0 means "found none" (get_top_one_id_or: your
+// own, such as -1 where 0 is a real id). A bool right after sql is always `debug`: to bind a bool first, pass debug
 // before it (get_top_one_long(db, sql, false, true)). The named forms are the common types: get_top_one_long / _string / _double / _bool
 // (and _or, _debug, _or_debug), e.g. get_top_one_bool(db, "SELECT observe FROM contract_modes
 // WHERE os = ? AND toolchain = ?", false, "fedora", "gcc16").
@@ -224,6 +225,20 @@ T get_top_one_or_debug(D& db, const char* sql, T deflt, B&&... b) {
 template<Database D, class... B> std::int64_t get_top_one_long(D& db, const char* sql, B&&... b) {
     return get_top_one<std::int64_t>(db, sql, std::forward<B>(b)...);
 }
+// An id: 0 means "found none" (no row, or NULL). Ids start at 1 (auto ids do), so 0 is never one;
+// where 0 can be a real id, use get_top_one<std::optional<std::int64_t>> instead.
+template<Database D, class... B> std::int64_t get_top_one_id(D& db, const char* sql, B&&... b) {
+    return get_top_one<std::int64_t>(db, sql, std::forward<B>(b)...);
+}
+// The same with your own "found none" (no row, or NULL), e.g. -1 where 0 can be a real id.
+template<Database D, class... B>
+std::int64_t get_top_one_id_or(D& db, const char* sql, std::int64_t none, B&&... b) {
+    return top_one_row<std::optional<std::int64_t>>(db, sql, false, std::forward<B>(b)...).value_or(std::nullopt).value_or(none);
+}
+template<Database D, std::same_as<bool> Debug, class... B>
+std::int64_t get_top_one_id_or(D& db, const char* sql, Debug debug, std::int64_t none, B&&... b) {
+    return top_one_row<std::optional<std::int64_t>>(db, sql, debug, std::forward<B>(b)...).value_or(std::nullopt).value_or(none);
+}
 template<Database D, class... B> std::string get_top_one_string(D& db, const char* sql, B&&... b) {
     return get_top_one<std::string>(db, sql, std::forward<B>(b)...);
 }
@@ -243,6 +258,9 @@ template<Database D, class... B> bool get_top_one_bool_or(D& db, const char* sql
     return get_top_one_or<bool>(db, sql, std::forward<B>(b)...);
 }
 template<Database D, class... B> std::int64_t get_top_one_long_debug(D& db, const char* sql, B&&... b) {
+    return get_top_one_debug<std::int64_t>(db, sql, std::forward<B>(b)...);
+}
+template<Database D, class... B> std::int64_t get_top_one_id_debug(D& db, const char* sql, B&&... b) {
     return get_top_one_debug<std::int64_t>(db, sql, std::forward<B>(b)...);
 }
 template<Database D, class... B> std::string get_top_one_string_debug(D& db, const char* sql, B&&... b) {
