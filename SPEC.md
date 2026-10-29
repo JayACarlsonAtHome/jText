@@ -96,7 +96,6 @@ The light profile uses a deliberate **`//` vs `#` contrast**:
 # Fields: tests/jtext_includes/run_manifest_scenarios_fields.jtFlds
 
  1. |# 1|TS_STORE_TEST_001_TS|gcc|binary|off|100|0.005|PASS|binary_logs/...
-
  1. |# 2|TS_STORE_TEST_002_TS|gcc|binary|off|100|0.005|PASS|binary_logs/...
 
 -- End Scenarios --
@@ -399,7 +398,6 @@ Example data, one compact row per option:
 ```
 === Data ===
  1. |# 1|1|0|-|No Value Selected|Yes|1
-
  1. |# 2|1|1|NAT|Natural Body|Yes|2
 === End Data ===
 ```
@@ -465,7 +463,7 @@ Template error cases:
 
 Each line in the data block represents one field's value for the current record. The line number references the field at the corresponding position in the fields block (e.g., line `3.` provides a value for the field declared at position 3). The line number is **always a field position (1–99), never a record identifier**; a record is identified by its field 1 value (Section 2.4.3).
 
-A complete record uses field numbers 1 through N (where N is the field count); a partial record may skip field numbers. Records are separated by a **blank line** within the data block (or within a light-profile section).
+A complete record uses field numbers 1 through N (where N is the field count); a partial record may skip field numbers. A line for field 1 starts a new record: field 1 is the record id, and a record has only one. A record written one line per field (vertical data) ends with a **blank line**, which separates it from the next. Multifield rows that start at field 1 (Section 2.6.3) follow one another directly: each is a whole record, and the next row's `1.` starts the next one. Within a record, each line's number must be past the last field already filled.
 
 **Data stays data.** In a data line, the splice character separates **field values** (a compact row, Section 2.6.3), never the levels of one value. A path such as `Hand Tools/Hammers/Claw` is ordinary text: write it with a formatter whose splice it does not contain, `3. ?# Hand Tools/Hammers/Claw`. Splitting into levels happens only in the Fields block and the file header (Section 3.3).
 
@@ -524,7 +522,7 @@ A record, or a run of its fields, may be written on one line, the splice charact
 - The number before `.` is a **field position**, as on every data line: the position of the first value on the line. A whole record starts at `1.`, and its first value is field 1, the record id (Section 2.4.3). A row starting at `k.` carries fields k, k+1, ...; values past the last declared field are an error.
 - Every splice character splits, and each piece fills the next field: a compact row is per-field lines written on one line. An empty value is two adjacent splices (`||`); a trailing splice ends with an empty value. Each value is trimmed of surrounding whitespace.
 - Any formatter works. `▮▌` is the writers' default (Section 3.1); `|#` is common in hand-written files.
-- A record may mix forms: a compact row from `1.`, then a multiline value on its own numbered line (Section 5; it cannot be part of a row), then the record continues at the next field. Records are separated by a blank line as always.
+- Rows that each hold a whole record follow one another without blank lines. A record may mix forms: a compact row from `1.`, then a multiline value on its own numbered line (Section 5; it cannot be part of a row), then the record continues at the next field; such a record is vertical data and ends with a blank line.
 
 ---
 
@@ -889,6 +887,7 @@ Semantic errors include:
 - Field value does not match its declared type (e.g., non-numeric value in a `Number` field)
 - Field value exceeds its declared length bound
 - `Not Null` field holds `{NULL}`, or `Not Empty` field is empty or missing, in some record (Section 2.4.2)
+- A `Date` or `DateTime` field is empty, missing or `{NULL}` (a date field always holds a date, Section 2.6.1); a `NullDate(...)` that is not a date, or on another type
 - Field 1 (the record id) is declared with a non-integer type or as `Nullable`, is missing or empty in some record, or holds a value that is not an integer (Section 2.4.3)
 
 Semantic **warnings** (non-blocking) include:
@@ -982,15 +981,10 @@ The `.jCheck` file is itself a jText file. It contains a single section named `V
 === End Fields ===
 === Data ===
  1. |# 1|target_file|contacts.jText
-
  1. |# 2|target_hash_algorithm|xxh3-128
-
  1. |# 3|target_hash|a3f1b0c84e9d7a2c5f8e0b1d6a7c4e9f
-
  1. |# 4|validated_at|2026-05-11T14:32:01.000Z
-
  1. |# 5|validator_version|jtext-validator-0.4
-
  1. |# 6|result|passed
 === End Data ===
 === End Section ===
@@ -1171,6 +1165,7 @@ All other open questions from earlier drafts have been resolved.
 - Section 3.2: a comment character as the first character of the data, followed by a space, opens a comment; the value is empty.
 - Section 5.1: a multiline value fills one field; the record continues at the next field or ends.
 - Section 2.6.3: compact rows take any formatter, may start at any field position, and continue after a multiline value.
+- Section 2.6: a line for field 1 starts a new record (field 1 is the record id). Whole-record multifield rows follow one another without blank lines; vertical records end with a blank line.
 - Section 2.3: `jtext_version` is written by every writer; readers warn on a missing, older, newer or invalid version and read on; saving upgrades it. The light profile writes `# jText Version:`.
 - Section 2.0: removed banner-less data rows and the light profile's undefined inline field block; a file is one profile or the other.
 - Section 2.1: `//File:` holds the file's name only.

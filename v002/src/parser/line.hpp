@@ -84,10 +84,10 @@ enum class line_kind : std::uint8_t {
 //  kind == data:
 //    - number: 1..99
 //    - fmt: the line's declared formatter
-//    - hierarchy: parsed segments (1 or more) of the data
-//      - flat data has hierarchy.size() == 1, hierarchy[0] is the value
-//      - empty data has hierarchy.size() == 1, hierarchy[0] is ""
-//      - hierarchical data has hierarchy.size() == N levels
+//    - values: the data, split on the splice character (SPEC 3.3)
+//      - one value: values.size() == 1, values[0] is the value ("" when empty)
+//      - a multifield line (data block): one value per field it fills
+//      - a declaration or header line (split_rule::levels): its levels
 //    - comment: text after the comment marker (without leading/trailing ws)
 //      - empty string when no comment was present
 //
@@ -95,7 +95,7 @@ enum class line_kind : std::uint8_t {
 //    - number: 1..99
 //    - fmt: [*
 //    - comment: the opener's optional comment (after '#')
-//    - hierarchy: empty from parse_line; the file parser fills in the one
+//    - values: empty from parse_line; the file parser fills in the one
 //      value its "**" lines make
 // ──────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ struct parsed_line {
     line_kind                 kind        = line_kind::data;
     unsigned                  number      = 0;
     formatter                 fmt;
-    std::vector<std::string>  hierarchy;
+    std::vector<std::string>  values;
     std::string               comment;
 };
 
@@ -113,10 +113,9 @@ struct parsed_line {
 //  Categorical reasons a line can fail to parse. Keep this stable
 //  so consumers can switch on it.
 //
-//  Note: hierarchy_empty_segment covers all cases where the data
-//  syntactically claims to be hierarchical but contains an empty
-//  segment somewhere — there is no meaningful interpretation of
-//  an empty hierarchy level, regardless of where it appears.
+//  Note: empty_level covers every empty level of a declaration or
+//  header line (split_rule::levels): "A//B", "///", "A/ /B". There is
+//  no meaningful interpretation of a nameless level.
 // ──────────────────────────────────────────────────────────────
 
 enum class parse_error_kind : std::uint8_t {
@@ -127,7 +126,7 @@ enum class parse_error_kind : std::uint8_t {
     formatter_too_short,                 // fewer than 2 chars where the marker goes
     formatter_separator_equals_bookend,  // the right two characters are the same
     formatter_invalid_char,              // non-ASCII, alphanumeric, or whitespace
-    hierarchy_empty_segment,             // hierarchy contains an empty segment
+    empty_level,                         // a declaration or header line has an empty level
     invalid_utf8,                        // the formatter's bytes are not UTF-8
     formatter_reserved,                  // '[' splice other than [] and [*
     multiline_opener_text,               // text after "[*" that is not a "#" comment
@@ -169,15 +168,16 @@ struct parse_error {
 //  split_rule
 //
 //  How the splice character divides the data (SPEC 2.6.3, 3.3).
-//    hierarchy - levels of one value: a leading or trailing separator is
-//                cosmetic, an empty level is an error. Fields-block lines,
-//                file-header lines.
-//    fields    - the values of a compact row: every separator splits, an
-//                empty value ("||", or a trailing "|") is an empty string.
-//                Data-block lines. This is the exact inverse of the writer.
-enum class split_rule : std::uint8_t { hierarchy, fields };
+//    levels     - the levels of one declaration or header line
+//                 ("id/Integer/Not Null"): a leading or trailing separator is
+//                 cosmetic, an empty level is an error. Fields-block lines,
+//                 file-header lines.
+//    multifield - a data line: each piece fills the next field. Every
+//                 separator splits, an empty value ("||", or a trailing "|")
+//                 is an empty string. This is the exact inverse of the writer.
+enum class split_rule : std::uint8_t { levels, multifield };
 
-auto parse_line(std::string_view line, split_rule rule = split_rule::hierarchy)
+auto parse_line(std::string_view line, split_rule rule = split_rule::levels)
     -> std::expected<parsed_line, parse_error>;
 
 //  Multiline values (SPEC 5)

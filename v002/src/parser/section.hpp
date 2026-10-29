@@ -74,7 +74,7 @@ struct parsed_template {
 
 struct multiline_body {
     std::size_t  data_line_index = 0;  // index into parsed_section::data_lines
-    std::string  body;                 // the value's lines, joined with '\n' (also the opener's hierarchy[0])
+    std::string  body;                 // the value's lines, joined with '\n' (also the opener's values[0])
 };
 
 struct parsed_section {
@@ -183,6 +183,16 @@ auto parse_file_structure(std::string_view text)
 // ──────────────────────────────────────────────────────────────
 
 inline constexpr std::string_view kFormatVersion = "0.8";
+
+// A file holds no nulls (SPEC 2.6.1). An author writes this text for "no value"; it is
+// read, edited and saved as text, and only SQL output turns it into NULL. A writer
+// handed a value it has no text for writes it, and a reader takes the v0.7 compact-row
+// null marker (U+001F) as it.
+inline constexpr std::string_view kNullValue = "{NULL}";
+
+// What a Date or DateTime field stores where there is no date and its declaration
+// gives no NullDate(...) (SPEC 2.6.1).
+inline constexpr std::string_view kDefaultNullDate = "1900-01-01";
 
 enum class version_status : std::uint8_t {
     current,   // the file declares kFormatVersion

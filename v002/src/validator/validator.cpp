@@ -65,13 +65,15 @@ auto to_string(issue_kind k) -> std::string_view
         case issue_kind::field_position_gap:           return "field_position_gap";
         case issue_kind::field_position_duplicate:     return "field_position_duplicate";
         case issue_kind::field_record_id_invalid:      return "field_record_id_invalid";
+        case issue_kind::field_invalid_null_date:      return "field_invalid_null_date";
         case issue_kind::record_field_out_of_range:    return "record_field_out_of_range";
         case issue_kind::record_field_duplicate:       return "record_field_duplicate";
         case issue_kind::record_field_out_of_sequence: return "record_field_out_of_sequence";
-        case issue_kind::record_missing_required_field: return "record_missing_required_field";
+        case issue_kind::record_null_not_allowed:      return "record_null_not_allowed";
+        case issue_kind::record_empty_not_allowed:     return "record_empty_not_allowed";
+        case issue_kind::record_date_missing:          return "record_date_missing";
         case issue_kind::record_value_type_mismatch:   return "record_value_type_mismatch";
         case issue_kind::record_value_length_exceeded: return "record_value_length_exceeded";
-        case issue_kind::record_hierarchical_value:    return "record_hierarchical_value";
         case issue_kind::record_missing_record_id:     return "record_missing_record_id";
         case issue_kind::record_id_not_integer:        return "record_id_not_integer";
         case issue_kind::record_gst_leap_seconds:      return "record_gst_leap_seconds";
@@ -146,6 +148,14 @@ auto validation_report::add(validation_issue issue) -> void
 // ──────────────────────────────────────────────────────────────
 
 namespace {
+
+// `s` without leading and trailing spaces and tabs.
+auto trim_view(std::string_view s) -> std::string_view
+{
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.remove_prefix(1);
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) s.remove_suffix(1);
+    return s;
+}
 
 // Case-insensitive string equality (ASCII only).
 auto iequals(std::string_view a, std::string_view b) -> bool
@@ -388,12 +398,13 @@ auto looks_like_datetime(std::string_view s) -> bool
 //  Field-declaration interpretation
 //
 //  Per SPEC Section 2.4: a field declaration line is one parsed_line
-//  whose hierarchy is the name followed by 1 to 4 segments. The
+//  whose levels are the name followed by 1 to 4 segments. The
 //  segments may come in any order, each kind at most once:
 //     type        (a String/Integer/Number/Date/Bool spelling)
 //     auto        (AutoID, Identity(seed,step), ... -- implies Integer)
 //     length      (a positive integer)
-//     constraint  ("Not Null" or "Nullable")
+//     constraints ("Not Null", "Not Empty", or "Nullable")
+//     null date   (NullDate(YYYY-MM-DD), Date/DateTime fields only)
 //  A type or an auto designation is required.
 //
 //  Position comes from the line's number (1..N).
@@ -417,31 +428,31 @@ auto interpret_one_field(
     interpret_field_result out;
     const auto where = std::format("section '{}', field {}", section_name, line.number);
 
-    if (line.hierarchy.size() < 2) {
+    if (line.values.size() < 2) {
         report_issue(report, issue_severity::error,
                      issue_kind::field_invalid_declaration,
                      0,  // source line not tracked at this layer yet
                      where,
                      std::format("expected at least name/type, got {} segment(s)",
-                                 line.hierarchy.size()));
+                                 line.values.size()));
         out.reported_issue = true;
         return out;
     }
-    if (line.hierarchy.size() > 5) {
+    if (line.values.size() > 7) {
         report_issue(report, issue_severity::error,
                      issue_kind::field_invalid_declaration,
                      0,
                      where,
-                     std::format("too many segments: {} (max 5: name plus a type, "
-                                 "an auto designation, a length and a constraint)",
-                                 line.hierarchy.size()));
+                     std::format("too many segments: {} (max 7: name plus a type, an auto "
+                                 "designation, a length, Not Null, Not Empty and a NullDate)",
+                                 line.values.size()));
         out.reported_issue = true;
         return out;
     }
 
     field f;
     f.position = line.number;
-    f.name     = line.hierarchy[0];
+    f.name     = line.values[0];
     f.comment  = line.comment;
 
     if (f.name.empty()) {
@@ -456,10 +467,11 @@ auto interpret_one_field(
 
     std::optional<field_type> declared_type;
     bool have_length = false;
-    bool have_constraint = false;
+    bool have_nullable = false;
+    bool have_null_date = false;
 
-    for (std::size_t i = 1; i < line.hierarchy.size(); ++i) {
-        const std::string_view seg = line.hierarchy[i];
+    for (std::size_t i = 1; i < line.values.size(); ++i) {
+        const std::string_view seg = line.values[i];
 
         if (auto t = parse_field_type(seg); t.has_value() && !declared_type) {
             declared_type = *t;
@@ -483,15 +495,23 @@ auto interpret_one_field(
             have_length = true;
             continue;
         }
-        if (!have_constraint && iequals(seg, "Not Null")) {
-            f.required = true;
-            have_constraint = true;
+        if (!f.not_null && !have_nullable && iequals(seg, "Not Null")) {
+            f.not_null = true;
             continue;
         }
-        if (!have_constraint && iequals(seg, "Nullable")) {
-            f.required = false;
+        if (!f.not_empty && !have_nullable && iequals(seg, "Not Empty")) {
+            f.not_empty = true;
+            continue;
+        }
+        if (!have_nullable && !f.not_null && !f.not_empty && iequals(seg, "Nullable")) {
+            have_nullable = true;
             out.declared_nullable = true;
-            have_constraint = true;
+            continue;
+        }
+        if (!have_null_date && seg.size() > 10 && iequals(seg.substr(0, 9), "NullDate(") &&
+            seg.back() == ')') {
+            f.null_date = std::string{trim_view(seg.substr(9, seg.size() - 10))};
+            have_null_date = true;
             continue;
         }
 
@@ -504,7 +524,8 @@ auto interpret_one_field(
                      std::format("segment '{}' is not recognized here (expected a type "
                                  "such as String/Text/Integer/Number/Date/DateTime/GST/Bool, an auto "
                                  "designation such as AutoID or Identity(1,1), a length, "
-                                 "or 'Not Null' / 'Nullable', each at most once)", seg));
+                                 "'Not Null' / 'Not Empty' / 'Nullable', or NullDate(YYYY-MM-DD), "
+                                 "each at most once; Nullable not with the others)", seg));
         out.reported_issue = true;
     }
 
@@ -526,6 +547,21 @@ auto interpret_one_field(
                      "no type given (expected a type such as String/Text/Integer/"
                      "Number/Date/Bool, or an auto designation)");
         out.reported_issue = true;
+    }
+
+    if (have_null_date) {
+        const bool date_field = f.type == field_type::date_type || f.type == field_type::datetime_type;
+        const bool ok = f.type == field_type::date_type ? looks_like_date(f.null_date)
+                      : looks_like_date(f.null_date) || looks_like_datetime(f.null_date);
+        if (!date_field || !ok) {
+            report_issue(report, issue_severity::error,
+                         issue_kind::field_invalid_null_date, 0, where,
+                         date_field ? std::format("NullDate({}) is not a valid {}", f.null_date,
+                                                  to_string(f.type))
+                                    : std::format("NullDate is only for Date and DateTime "
+                                                  "fields, not {}", to_string(f.type)));
+            out.reported_issue = true;
+        }
     }
 
     out.fld = std::move(f);
@@ -584,7 +620,7 @@ auto interpret_fields(
     }
 
     // Field 1 is the record id (SPEC Section 2.6.4): any name, but always an
-    // integer and never null. It is required whether or not it says Not Null.
+    // integer, never {NULL} and never empty, whether or not it says so.
     if (!fields.empty() && fields[0].position == 1) {
         auto& id = fields[0];
         if (id.type != field_type::integer_type && id.type != field_type::number_type) {
@@ -604,7 +640,8 @@ auto interpret_fields(
                          std::format("section '{}', field 1 ({})", sec.name, id.name),
                          "field 1 is the record id and cannot be Nullable");
         }
-        id.required = true;
+        id.not_null = true;
+        id.not_empty = true;
     }
 
     return fields;
@@ -622,21 +659,6 @@ auto interpret_fields(
 //  Field positions outside 1..N are errors.
 // ──────────────────────────────────────────────────────────────
 
-auto encode_value(const parsed_line& line) -> std::string
-{
-    // The hierarchy was parsed by parse_line. For typical record
-    // lines the hierarchy is one element. If it's multiple, join
-    // with '/' and let the validator flag it as suspicious for
-    // record values.
-    if (line.hierarchy.size() == 1) return line.hierarchy[0];
-    std::string out;
-    for (std::size_t i = 0; i < line.hierarchy.size(); ++i) {
-        if (i > 0) out.push_back('/');
-        out.append(line.hierarchy[i]);
-    }
-    return out;
-}
-
 auto assemble_records(
     const parsed_section& sec,
     std::size_t           field_count,
@@ -646,16 +668,14 @@ auto assemble_records(
     record current;
     bool record_open = false;
     unsigned last_pos = 0;
-    bool first_field_in_record = true;
 
-    // Field 1 is the record id (SPEC Section 2.6.4); capture it as an integer
+    // Field 1 is the record id (SPEC Section 2.4.3); capture it as an integer
     // when it is one. Missing or non-integer ids are reported by
     // validate_record_values.
     auto flush_current = [&]() {
         if (record_open) {
-            if (!current.values.empty() && current.values[0] &&
-                looks_like_integer(*current.values[0])) {
-                std::string_view v = *current.values[0];
+            if (!current.values.empty() && looks_like_integer(current.values[0])) {
+                std::string_view v = current.values[0];
                 if (!v.empty() && v.front() == '+') v.remove_prefix(1);
                 std::int64_t id = 0;
                 auto [p, ec] = std::from_chars(v.data(), v.data() + v.size(), id);
@@ -665,7 +685,6 @@ auto assemble_records(
             current = record{};
             record_open = false;
             last_pos = 0;
-            first_field_in_record = true;
         }
     };
 
@@ -676,109 +695,53 @@ auto assemble_records(
             continue;
         }
 
-        // Compact row: one data line carries consecutive fields, using a
-        // formatter such as |# so the line parser already split the tail into
-        // pl.hierarchy (one entry per value). Like every data line, the number
-        // before '.' is a FIELD POSITION, the first one on the line (SPEC
-        // Section 2.6.3); a whole record is "1. |# <id>|<f2>|...|<fN>".
-        // (Per-field data lines have hierarchy.size() == 1.)
-        if (pl.hierarchy.size() > 1) {
-            // full record in one line
-            flush_current();
-            current.values.assign(field_count, std::nullopt);
-            current.source_line_no = 0;
-            record_open = true;
-            const std::size_t first = pl.number - 1;   // 0-based position of the first value
-            const std::size_t last  = first + pl.hierarchy.size();
-            if (field_count > 0 && last > field_count) {
-                report_issue(report, issue_severity::error,
-                             issue_kind::record_field_out_of_range,
-                             0,
-                             std::format("section '{}'", sec.name),
-                             std::format("compact row starting at field {} carries {} values "
-                                         "(through field {}) but the section declares only "
-                                         "{} field(s)", pl.number, pl.hierarchy.size(), last,
-                                         field_count));
-            }
-            for (std::size_t fi = 0; fi < pl.hierarchy.size() && first + fi < field_count; ++fi) {
-                const auto& hv = pl.hierarchy[fi];
-                // We picked '|' as the field separator character for compact
-                // rows ("1. |# f1|f2|...").
-                // Null is represented by the embedded ASCII Unit Separator (0x1F)
-                // so that a null field appears as |\x1F| while empty string is || .
-                // This allows the surface to look similar (|| vs || with invisible)
-                // but distinguishes null from empty.
-                // We also support \N and NULL for compatibility.
-                if (hv == "\x1f" || hv == "\\N" || hv == "NULL") {
-                    current.values[first + fi] = std::nullopt;
-                } else {
-                    current.values[first + fi] = hv;  // empty string stays as ""
-                }
-            }
-            flush_current();  // complete row
-            continue;
-        }
-
-        // Regular data line. Lazy-init the current record's values
-        // vector to size field_count (only the first time we see a
-        // field for this record).
+        // A data line fills fields from its number on, one per value: a multifield
+        // line ("1. |# <id>|<f2>|...") fills several, any other line one (SPEC
+        // 2.6.3). The record continues with the next line, including after a
+        // multiline value, until a blank line ends it. A line for field 1 starts a
+        // new record too: field 1 is the record id, so a record has only one.
+        if (record_open && pl.number == 1) flush_current();
         if (!record_open) {
-            current.values.assign(field_count, std::nullopt);
+            current.values.assign(field_count, std::string{});
             current.source_line_no = 0;  // we don't have source line; future work
             record_open = true;
-            first_field_in_record = true;
             last_pos = 0;
         }
+        const std::string where = std::format("section '{}'", sec.name);
 
-        // Validate the field position.
-        if (pl.number > field_count) {
+        if (pl.number <= last_pos) {
             report_issue(report, issue_severity::error,
-                         issue_kind::record_field_out_of_range,
-                         0,
-                         std::format("section '{}'", sec.name),
-                         std::format("data line references field {} but the "
-                                     "section declares only {} field(s)",
-                                     pl.number, field_count));
-            // Continue past — don't write to values[].
+                         pl.number == last_pos ? issue_kind::record_field_duplicate
+                                               : issue_kind::record_field_out_of_sequence,
+                         0, where,
+                         pl.number == last_pos
+                             ? std::format("field {} appears more than once in the same "
+                                           "record", pl.number)
+                             : std::format("field {} appears after field {} in the same "
+                                           "record; field numbers must be strictly "
+                                           "increasing", pl.number, last_pos));
             continue;
         }
 
-        // Strict increase check.
-        if (!first_field_in_record && pl.number <= last_pos) {
-            if (pl.number == last_pos) {
-                report_issue(report, issue_severity::error,
-                             issue_kind::record_field_duplicate,
-                             0,
-                             std::format("section '{}'", sec.name),
-                             std::format("field {} appears more than once in the "
-                                         "same record", pl.number));
-            } else {
-                report_issue(report, issue_severity::error,
-                             issue_kind::record_field_out_of_sequence,
-                             0,
-                             std::format("section '{}'", sec.name),
-                             std::format("field {} appears after field {} in the "
-                                         "same record; field numbers must be "
-                                         "strictly increasing", pl.number, last_pos));
-            }
-            continue;
+        const std::size_t first = pl.number - 1;           // 0-based position of the first value
+        const std::size_t count = std::max<std::size_t>(pl.values.size(), 1);
+        if (field_count > 0 && first + count > field_count) {   // 0: fields from an include
+            report_issue(report, issue_severity::error,
+                         issue_kind::record_field_out_of_range, 0, where,
+                         count == 1
+                             ? std::format("data line references field {} but the section "
+                                           "declares only {} field(s)", pl.number, field_count)
+                             : std::format("multifield line starting at field {} carries {} "
+                                           "values (through field {}) but the section declares "
+                                           "only {} field(s)", pl.number, count, first + count,
+                                           field_count));
         }
-
-        // Multi-segment hierarchies in records are flagged.
-        if (pl.hierarchy.size() > 1) {
-            report_issue(report, issue_severity::warning,
-                         issue_kind::record_hierarchical_value,
-                         0,
-                         std::format("section '{}'", sec.name),
-                         std::format("data line for field {} contains a "
-                                     "hierarchical value with {} segments; "
-                                     "stored as joined string", pl.number,
-                                     pl.hierarchy.size()));
+        for (std::size_t fi = 0; fi < pl.values.size() && first + fi < field_count; ++fi) {
+            // U+001F was the v0.7 compact-row null marker: it reads as {NULL}.
+            const auto& v = pl.values[fi];
+            current.values[first + fi] = v == "\x1F" ? std::string{kNullValue} : v;
         }
-
-        current.values[pl.number - 1] = encode_value(pl);
-        last_pos = pl.number;
-        first_field_in_record = false;
+        last_pos = static_cast<unsigned>(first + count);
     }
 
     flush_current();
@@ -857,43 +820,51 @@ auto validate_record_values(
             const auto& fld = fields[fi];
             const auto& v   = rec.values[fi];
 
-            const bool present = v.has_value();
-            const bool empty   = present && v->empty();
+            const bool empty   = v.empty();
+            const bool is_null = v == kNullValue;
+            const auto where = std::format("section '{}', record {}, field {} ({})",
+                                           section_name, ri + 1, fld.position, fld.name);
 
-            // Field 1 is the record id (SPEC Section 2.6.4). Presence is checked at
+            // Field 1 is the record id (SPEC Section 2.4.3). Presence is checked at
             // every level; integer-ness (and 64-bit range) at Standard+.
             if (fi == 0 && fld.position == 1) {
-                const auto where = std::format("section '{}', record {}, field 1 ({})",
-                                               section_name, ri + 1, fld.name);
-                if (!present || empty) {
+                if (empty || is_null) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_missing_record_id, 0, where,
-                                 "record id (field 1) is missing or empty; a producer "
+                                 "record id (field 1) is missing, empty or {NULL}; a producer "
                                  "must generate one when the source has none");
                 } else if (level_at_least(level, validation_level::standard) &&
                            !rec.record_id.has_value()) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_id_not_integer, 0, where,
                                  std::format("record id '{}' is not an integer "
-                                             "(or is outside the 64-bit range)", *v));
+                                             "(or is outside the 64-bit range)", v));
                 }
                 continue;
             }
 
-            // Required (Not Null) presence is checked at every level (incl. minimal).
-            if (fld.required) {
-                if (!present || empty) {
-                    report_issue(report, issue_severity::error,
-                                 issue_kind::record_missing_required_field,
-                                 0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
-                                 "required (Not Null) field is missing or empty");
-                    continue;
-                }
+            // Constraints and dates are checked at every level (incl. minimal).
+            if (fld.not_null && is_null) {
+                report_issue(report, issue_severity::error,
+                             issue_kind::record_null_not_allowed, 0, where,
+                             "Not Null field holds {NULL}");
+            }
+            if (fld.not_empty && empty) {
+                report_issue(report, issue_severity::error,
+                             issue_kind::record_empty_not_allowed, 0, where,
+                             "Not Empty field is empty or missing");
+            }
+            if ((fld.type == field_type::date_type || fld.type == field_type::datetime_type) &&
+                (empty || is_null)) {
+                report_issue(report, issue_severity::error,
+                             issue_kind::record_date_missing, 0, where,
+                             std::format("a {} field always holds a date; where there is "
+                                         "none, write its null date {}", to_string(fld.type),
+                                         null_date(fld)));
+                continue;
             }
 
-            if (!present || empty) continue;  // Nullable + absent/empty: NULL per spec
+            if (empty || is_null) continue;   // text: nothing to check the type of
 
             // Per-value type/format/length checks are Standard+ (skipped at minimal).
             if (!level_at_least(level, validation_level::standard)) continue;
@@ -901,106 +872,98 @@ auto validate_record_values(
             // Type checks (only when there's a value to check).
             switch (fld.type) {
             case field_type::string_type:
-                if (fld.max_length.has_value() && v->size() > *fld.max_length) {
+                if (fld.max_length.has_value() && v.size() > *fld.max_length) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_length_exceeded,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  std::format("value length {} exceeds declared "
                                              "max_length {}",
-                                             v->size(), *fld.max_length));
+                                             v.size(), *fld.max_length));
                 }
                 break;
             case field_type::number_type:
-                if (!looks_like_number(*v)) {
+                if (!looks_like_number(v)) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_type_mismatch,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
-                                 std::format("value '{}' is not a valid Number", *v));
+                                 where,
+                                 std::format("value '{}' is not a valid Number", v));
                 }
                 break;
             case field_type::integer_type: {
-                std::string_view iv = *v;
+                std::string_view iv = v;
                 if (!iv.empty() && iv.front() == '+') iv.remove_prefix(1);
                 std::int64_t n = 0;
                 auto [p, ec] = std::from_chars(iv.data(), iv.data() + iv.size(), n);
-                if (!looks_like_integer(*v) || ec != std::errc{} || p != iv.data() + iv.size()) {
+                if (!looks_like_integer(v) || ec != std::errc{} || p != iv.data() + iv.size()) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_type_mismatch,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  std::format("value '{}' is not a valid Integer "
-                                             "(whole number within 64 bits)", *v));
+                                             "(whole number within 64 bits)", v));
                 }
                 break;
             }
             case field_type::bool_type:
-                if (!parse_bool_value(*v)) {
+                if (!parse_bool_value(v)) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_type_mismatch,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  std::format("value '{}' is not a valid Bool (expected "
-                                             "Yes/No, True/False, Y/N, T/F or 1/0)", *v));
+                                             "Yes/No, True/False, Y/N, T/F or 1/0)", v));
                 }
                 break;
             case field_type::gst_type:
-                if (auto g = parse_gst_value(*v); g && g->ticks >= kGstTicksPerEarthYear) {
+                if (auto g = parse_gst_value(v); g && g->ticks >= kGstTicksPerEarthYear) {
                     // Valid GST, but past one year: warn at two levels, never block.
                     const bool beyond_room = g->ticks >= kGstTickLimit;
                     report_issue(report, issue_severity::warning,
                                  beyond_room ? issue_kind::record_gst_beyond_leap_room
                                              : issue_kind::record_gst_leap_seconds,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  beyond_room
                                      ? std::format("GST '{}' ticks go beyond 1 year and {} leap "
-                                                   "seconds (last expected tick {})", *v,
+                                                   "seconds (last expected tick {})", v,
                                                    kGstLeapSecondsRoom, kGstTickLimit - 1)
                                      : std::format("GST '{}' ticks go beyond 1 year: leap seconds "
-                                                   "(a year is {} ticks)", *v,
+                                                   "(a year is {} ticks)", v,
                                                    kGstTicksPerEarthYear));
                 } else if (!g) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_type_mismatch,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  std::format("value '{}' is not a valid GST (required format "
                                              "is <year>:<ticks>, year a signed 64-bit integer, "
                                              "ticks exactly {} digits, zero-padded)",
-                                             *v, kGstTickDigits));
+                                             v, kGstTickDigits));
                 }
                 break;
             case field_type::datetime_type:
-                if (!looks_like_datetime(*v)) {
+                if (!looks_like_datetime(v)) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_type_mismatch,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  std::format("value '{}' is not a valid DateTime (required "
                                              "format is YYYY-MM-DDTHH:MM:SS, optional "
                                              ".fraction and Z or +HH:MM zone; a space "
-                                             "may replace the T)", *v));
+                                             "may replace the T)", v));
                 }
                 break;
             case field_type::date_type:
-                if (!looks_like_date(*v)) {
+                if (!looks_like_date(v)) {
                     report_issue(report, issue_severity::error,
                                  issue_kind::record_value_type_mismatch,
                                  0,
-                                 std::format("section '{}', record {}, field {} ({})",
-                                             section_name, ri + 1, fld.position, fld.name),
+                                 where,
                                  std::format("value '{}' is not a valid Date "
                                              "(required format is exactly "
-                                             "YYYY-MM-DD)", *v));
+                                             "YYYY-MM-DD)", v));
                 }
                 break;
             }
@@ -1050,15 +1013,15 @@ auto interpret_header(
         }
         const auto& key = recognized[pos];
         // Header values are single-segment except for related_files,
-        // which is a hierarchy of filenames. Both cases get joined
+        // whose levels are filenames. Both cases get joined
         // with '/' separator when stored.
         std::string value;
-        if (hl.hierarchy.size() == 1) {
-            value = hl.hierarchy[0];
+        if (hl.values.size() == 1) {
+            value = hl.values[0];
         } else {
-            for (std::size_t i = 0; i < hl.hierarchy.size(); ++i) {
+            for (std::size_t i = 0; i < hl.values.size(); ++i) {
                 if (i > 0) value.push_back('/');
-                value.append(hl.hierarchy[i]);
+                value.append(hl.values[i]);
             }
         }
         out[std::string{key}] = std::move(value);
@@ -1135,27 +1098,11 @@ auto validate(const parsed_file& pf, validation_level level) -> validate_result
     return vr;
 }
 
-// Simple in-memory substitution for numbered placeholders {1}, {2}, ...
-// Replaces {N} with the corresponding value (or "NULL" for missing).
-// This is the core of the "in memory procedure" for template-driven processing
-// (e.g. turning ts_store jText records + template into SQL statements on the fly
-// without writing a full .jtFull or .sql file). The caller is responsible for
-// any SQL-specific quoting/escaping if needed.
-std::string apply_numbered_template(std::string_view body,
-                                    const std::vector<std::optional<std::string>>& values)
+auto null_date(const field& f) -> std::string
 {
-    std::string out(body);
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        std::string placeholder = "{" + std::to_string(i + 1) + "}";
-        std::string replacement = values[i].has_value() ? *values[i] : "NULL";
-
-        std::string::size_type pos = 0;
-        while ((pos = out.find(placeholder, pos)) != std::string::npos) {
-            out.replace(pos, placeholder.length(), replacement);
-            pos += replacement.length();
-        }
-    }
-    return out;
+    std::string d = f.null_date.empty() ? std::string{kDefaultNullDate} : f.null_date;
+    if (f.type == field_type::datetime_type && d.size() == 10) d += " 00:00:00";
+    return d;
 }
 
 }  // namespace jtext

@@ -121,7 +121,7 @@ Every other text format has *fixed* reserved characters: CSV reserves `,` and `"
 
 jText reverses this. **Each line carries its own two-character marker:** `<splice><comment>`. The older marker was three characters. Dropping one character on every field line is 10 million bytes on a 10 million row compact table, and it multiplies by the number of field lines.
 
-- The first character splices fields on a compact line, and levels in a hierarchy. If the data contains `/`, choose a different splicing character.
+- The first character splits a data line into fields (a multifield line: each piece fills the next field), and a field declaration into its parts (`name/Type/Not Null`). Data stays data: a path such as `Hand Tools/Hammers` is one value, so write it with a splicing character it does not contain (`?#`).
 - The second character starts a comment when a space sits on each side of it. If the data contains `#`, choose a different comment character. The same character in the data without a space on each side stays data, and validation warns. The warning names the record id and the field number.
 - A `'` is stored as `'`.
 
@@ -259,12 +259,12 @@ A: It's the heart of the format. Those two characters declare, for that line onl
 **Q: How is this related to ts_store?**
 A: [ts_store](https://github.com/JayACarlsonAtHome/ts_store) is a multithreaded ordered logging library by the same author. jText is the natural plain-text format for ts_store's output: humans can read the logs, tools can validate them, and the same file can be loaded into a SQL database when bulk analysis is needed. The two projects are designed to work together but are independently useful.
 
-ts_store emits a compact data row form for efficiency:
-`<recid>. |# f1|f2|...`
-using `|` as field separator and `\x1F` (ASCII Unit Separator) as the embedded null marker (`|\x1F|` for null, `||` for empty string). jText tools and the parser fully support this variant (see SPEC.md §2.6.3).
+ts_store emits multifield data lines for efficiency:
+` 1. ▮▌ <id>▮f2▮...`
+where the number is the first field's position and each value fills the next field. `▮▮` is an empty string. A file holds no nulls: `{NULL}` is the text for "no value", which SQL output writes as `NULL` (see SPEC.md §2.6.1, §2.6.3). Older logs used `\x1F` (ASCII Unit Separator) for null; readers take it as `{NULL}`.
 
 **Q: Will jText files always be parseable by future versions of jText?**
-A: Yes. The `jtext_version` field in the file header pins each file to its spec version. Backward compatibility is a core principle of future-feature design.
+A: The `jtext_version` field in the file header names each file's spec version. A reader warns when it is missing, older or newer, and reads on; saving upgrades it. Forms a version removes are converted by `jtext_close` (for example v0.7's `<<<` multiline blocks), so an older file can always be brought forward.
 
 **Q: Can I use jText commercially?**
 A: Yes. The specification and reference implementation are Apache-2.0 licensed.

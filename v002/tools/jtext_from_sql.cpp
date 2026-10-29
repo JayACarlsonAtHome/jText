@@ -33,6 +33,9 @@
 #include <cstdlib>
 #include <chrono>
 #include <format>
+#include <optional>
+
+#include "parser/section.hpp"   // jtext::kFormatVersion
 
 #include <unistd.h>      // pipe, fork, dup2, read, execvp, _exit
 #include <sys/wait.h>    // waitpid
@@ -74,28 +77,31 @@ static std::string trim(const std::string& s) {
 // NO shell, so nothing in `sql` (table names, query text) can be interpreted as
 // a shell metacharacter or command. This closes the command-injection path that
 // the previous popen("psql … -c \"" + sql + "\"") construction opened.
-static std::string run_psql(const std::string& sql, bool tuples_only = true) {
+//
+// Returns psql's output, or nothing when psql could not run or failed: its error
+// goes to our stderr, never into the output, so an error message can never be
+// mistaken for a column list and written into the generated files.
+static std::optional<std::string> run_psql(const std::string& sql) {
     int fds[2];
-    if (::pipe(fds) != 0) return {};
+    if (::pipe(fds) != 0) return std::nullopt;
 
     const pid_t pid = ::fork();
     if (pid < 0) {
         ::close(fds[0]);
         ::close(fds[1]);
-        return {};
+        return std::nullopt;
     }
 
     if (pid == 0) {
-        // Child: send stdout+stderr to the pipe, then exec psql directly.
+        // Child: send stdout to the pipe (stderr stays ours), then exec psql directly.
         ::dup2(fds[1], STDOUT_FILENO);
-        ::dup2(fds[1], STDERR_FILENO);
         ::close(fds[0]);
         ::close(fds[1]);
         // Field separator is a literal tab; -A unaligned, -t tuples-only, -X no rc.
         std::vector<char*> argv;
         auto push = [&](const char* s) { argv.push_back(const_cast<char*>(s)); };
         push("psql"); push("-X"); push("-A"); push("-F"); push("\t");
-        if (tuples_only) push("-t");
+        push("-t");
         push("-c"); push(sql.c_str());
         argv.push_back(nullptr);
         ::execvp("psql", argv.data());
@@ -113,6 +119,7 @@ static std::string run_psql(const std::string& sql, bool tuples_only = true) {
     ::close(fds[0]);
     int status = 0;
     ::waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return std::nullopt;
     return result;
 }
 
@@ -213,14 +220,21 @@ int main(int argc, char** argv) {
     auto today0 = std::chrono::floor<std::chrono::days>(now0);
     std::string date_str = std::format("{:%Y-%m-%d}", today0);
 
-    // 3. Get column metadata - use a clean COPY to get one line per column
+    // 3. Get column metadata: one line per column, name, type and nullability separated
+    // by tabs (psql -A -F '\t' -t). Not COPY: its text format writes a tab inside a
+    // value as the two characters "\t".
     std::string meta_sql =
-        "COPY (SELECT column_name || E'\\t' || data_type || E'\\t' || is_nullable "
+        "SELECT column_name, data_type, is_nullable "
         "FROM information_schema.columns "
         "WHERE table_name = '" + table_name + "' "
-        "ORDER BY ordinal_position) TO STDOUT;";
+        "ORDER BY ordinal_position;";
 
-    std::string meta_raw = run_psql(meta_sql, false);
+    const auto meta = run_psql(meta_sql);
+    if (!meta) {
+        std::cerr << "ERROR: psql failed (see its message above); nothing was written.\n";
+        return 6;
+    }
+    const std::string& meta_raw = *meta;
 
     std::string meta_line;
     std::vector<ColumnMeta> columns;
@@ -284,10 +298,11 @@ int main(int argc, char** argv) {
         out << "=== Fields ===\n";
         for (size_t i = 0; i < columns.size(); ++i) {
             const auto& c = columns[i];
-            out << " " << (i+1) << ". #/# " << c.name << "/"
+            out << std::format("{:>2}. /# ", i + 1) << c.name << "/"
                 << map_pg_type_to_jtext(c.pg_type)
                 << (c.not_null ? "/Not Null" : "/Nullable") << "\n";
         }
+        out << "=== End Fields ===\n";
         std::cout << "Wrote " << f << "\n";
     }
 
@@ -296,22 +311,23 @@ int main(int argc, char** argv) {
         fs::path f = out_dir / (base + ".jtinsrt");
         std::ofstream out(f);
         out << make_header(base + ".jtinsrt", "jText Data File", related);
+        // The body is a multiline value (SPEC 5): a bare "[*", "** " lines, "*]".
         out << "=== Template: SQL Insert ===\n";
-        out << " 1. <<< !!!INS!!!\n";
-        out << "INSERT INTO " << table_name << " (\n";
+        out << "[*\n";
+        out << "** INSERT INTO " << table_name << " (\n";
         for (size_t i = 0; i < columns.size(); ++i) {
-            out << "    " << columns[i].name;
+            out << "**     " << columns[i].name;
             if (i + 1 < columns.size()) out << ",";
             out << "\n";
         }
-        out << ") VALUES (\n";
+        out << "** ) VALUES (\n";
         for (size_t i = 0; i < columns.size(); ++i) {
-            out << "    {" << (i+1) << "}";
+            out << "**     {" << (i+1) << "}";
             if (i + 1 < columns.size()) out << ",";
             out << "\n";
         }
-        out << ");\n";
-        out << "!!!INS!!!\n";
+        out << "** );\n";
+        out << "*]\n";
         std::cout << "Wrote " << f << "\n";
     }
 
@@ -321,18 +337,21 @@ int main(int argc, char** argv) {
         std::ofstream out(f);
         out << make_header(base + ".jtext", "jText Data File", related);
         out << "=== jText File ===\n";
-        out << " 1. #?# " << base << ".jtext\n";
-        out << " 2. #?# " << date_str << "\n";
-        out << " 3. #?# Data retrieved from PostgreSQL table " << table_name << "\n";
+        out << " 1. ?# " << base << ".jtext\n";
+        out << " 2. ?# " << date_str << "\n";
+        out << " 3. ?# Data retrieved from PostgreSQL table " << table_name << "\n";
+        out << " 4. ?# " << jtext::kFormatVersion << "\n";
         out << "\n";
         out << "=== Section: " << table_name << " ===\n";
         out << "=== Fields ===\n";
         // Reference the generated field list via comment for now
         out << "// (In real use you would use === <#include#> Fields: " << base << ".jtFlds ===)\n";
         for (size_t i = 0; i < columns.size(); ++i) {
-            out << " " << (i+1) << ". #/# " << columns[i].name << "/"
-                << map_pg_type_to_jtext(columns[i].pg_type) << "\n";
+            out << std::format("{:>2}. /# ", i + 1) << columns[i].name << "/"
+                << map_pg_type_to_jtext(columns[i].pg_type)
+                << (columns[i].not_null ? "/Not Null" : "/Nullable") << "\n";
         }
+        out << "=== End Fields ===\n";
         out << "=== Data ===\n";
         out << "// TODO: Run a data query and emit actual records here\n";
         out << "=== End Data ===\n";

@@ -1,14 +1,25 @@
 //File:    workshop_from_db.jtinsrt
-//Date:    2026-06-05
+//Date:    2026-10-29
 //Purpose: jText Data File
 //Related: type=PostgreSQL table=workshop_tools
 //
-
 === Template: SQL Insert ===
 [*
 ** INSERT INTO workshop_tools (
-**     psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist
+**     id,
+**     name,
+**     category,
+**     acquired,
+**     condition,
+**     location,
+**     notes
 ** ) VALUES (
-**     {1}
+**     {1},
+**     {2},
+**     {3},
+**     {4},
+**     {5},
+**     {6},
+**     {7}
 ** );
 *]

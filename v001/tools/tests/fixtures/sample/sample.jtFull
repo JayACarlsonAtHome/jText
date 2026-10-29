@@ -13,23 +13,29 @@
 
 === Template: SQL Insert ===
 [*
-** INSERT INTO sample (id, name, category) VALUES ({1}, {2}, {3});
+** INSERT INTO sample (id, name, category, acquired, notes) VALUES ({1}, {2}, {3}, {4}, {5});
 *]
 
 === Fields ===
  1. #/# id/Number/Not Null                         # primary key
  2. #/# name/String/80/Not Null                    # item name
  3. #/# category/String/100/Not Null               # category
+ 4. #/# acquired/Date/Not Null                     # 1900-01-01 when unknown
+ 5. #/# notes/String                               # {NULL} or empty when none
 === End Fields ===
 
 === Data ===
  1. #?# 1
  2. #?# Stanley Hammer 16oz
  3. #?# Hand Tools
+ 4. #?# 2019-04-12
+ 5. #?# {NULL}
 
  1. #?# 2
  2. #?# DeWalt Drill DCD777
  3. #?# Power Tools
+ 4. #?# 1900-01-01
+ 5. #?#
 
 === End Data ===
 === End Section ===

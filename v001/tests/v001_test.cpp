@@ -1,6 +1,6 @@
 #include <jText/v001.hpp>
 
-static_assert(jText::v001::version() == "v001.016", "v001 version");
+static_assert(jText::v001::version() == "v001.017", "v001 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -127,7 +127,8 @@ int main() {
         w.append_entry(f2);
         w.finalize();
         check(!w.last_record_id().has_value(), "!w.last_record_id().has_value()");
-        check(o.str().find("2. |\xE2\x96\x8C \x1F") != std::string::npos, "o.str().find(\"2. |\\xE2\\x96\\x8C \\x1F\") != std::string::npos");
+        // A field given no value is written as the text {NULL} (SPEC 2.6.1).
+        check(o.str().find("2. |\xE2\x96\x8C {NULL}\n") != std::string::npos, "a field given no value is written as {NULL}");
     }
 
     {
@@ -285,11 +286,11 @@ int main() {
 
     {
         // One line grammar for every reader. In a data row every separator splits and
-        // empty values are kept (the writer's exact inverse); in a hierarchy an empty
+        // empty values are kept (the writer's exact inverse); in a declaration's levels an empty
         // level is an error.
-        auto fields = jtext::parse_line("1. |# a||b|", jtext::split_rule::fields);
+        auto fields = jtext::parse_line("1. |# a||b|", jtext::split_rule::multifield);
         check(fields.has_value(), "fields.has_value()");
-        check((fields->hierarchy == std::vector<std::string>{"a", "", "b", ""}), "(fields->hierarchy == std::vector<std::string>{\"a\", \"\", \"b\", \"\"})");
+        check((fields->values == std::vector<std::string>{"a", "", "b", ""}), "(fields->values == std::vector<std::string>{\"a\", \"\", \"b\", \"\"})");
         check(!jtext::parse_line("1. |# a||b|").has_value(), "!jtext::parse_line(\"1. |# a||b|\").has_value()");
 
         using namespace jText::v001;
@@ -311,7 +312,8 @@ int main() {
         const auto& rows = f.sections[0].entries;
         check(rows.size() == 4, "rows.size() == 4");
         check(rows[0].fields.size() == 3 && rows[0].fields[2] && rows[0].fields[2]->empty(), "rows[0].fields.size() == 3 && rows[0].fields[2] && rows[0].fields[2]->empty()");
-        check(rows[1].fields.size() == 4 && rows[1].fields[1]->empty() && !rows[1].fields[3].has_value(), "rows[1].fields.size() == 4 && rows[1].fields[1]->empty() && !rows[1].fields[3].has_value()");
+        check(rows[1].fields.size() == 4 && rows[1].fields[1]->empty() && *rows[1].fields[3] == "{NULL}",
+              "an empty value is empty; the v0.7 marker U+001F reads as {NULL}");
         check(rows[2].fields.size() == 4 && *rows[2].fields[3] == "c" && rows[2].comment == "first # second", "rows[2].fields.size() == 4 && *rows[2].fields[3] == \"c\" && rows[2].comment == \"first # second\"");
         check(rows[3].fields.size() == 2 && *rows[3].fields[1] == "a|b # c" && rows[3].comment == "v0.8 formatter", "rows[3].fields.size() == 2 && *rows[3].fields[1] == \"a|b # c\" && rows[3].comment == \"v0.8 formatter\"");
         check(rows[3].level_sep == U'\u25AE' && rows[3].delimiter == U'\u258C', "rows[3].level_sep == U'\\u25AE' && rows[3].delimiter == U'\\u258C'");
@@ -319,7 +321,8 @@ int main() {
     }
 
     {
-        // Writer to reader: empty strings and nulls come back as written.
+        // Writer to reader: empty strings come back empty, and a field given no value
+        // comes back as the text {NULL} (SPEC 2.6.1).
         using namespace jText::v001;
         const auto path = std::filesystem::temp_directory_path() / "jtext_round_trip_test.jtext";
         {
@@ -339,7 +342,7 @@ int main() {
         const auto& r = f.sections.at(0).entries.at(0);
         check(r.fields.size() == 5, "r.fields.size() == 5");
         check(r.fields[1] && r.fields[1]->empty(), "r.fields[1] && r.fields[1]->empty()");
-        check(!r.fields[2].has_value(), "!r.fields[2].has_value()");
+        check(r.fields[2] && *r.fields[2] == "{NULL}", "no value reads back as {NULL}");
         check(r.fields[3] && *r.fields[3] == "x", "r.fields[3] && *r.fields[3] == \"x\"");
         check(r.fields[4] && r.fields[4]->empty(), "r.fields[4] && r.fields[4]->empty()");
         std::filesystem::remove(path);
@@ -373,16 +376,16 @@ int main() {
         check(!jtext::is_valid_formatter_char(U'\u0301'), "!jtext::is_valid_formatter_char(U'\\u0301')");                                            // combining mark
 
         auto both = [](std::string_view line) {
-            return std::pair{jtext::parse_line(line, jtext::split_rule::fields), jtext::parse_line(line)};
+            return std::pair{jtext::parse_line(line, jtext::split_rule::multifield), jtext::parse_line(line)};
         };
         auto [f, h] = both("1. \u25AE\u258C 1\u25AEcmd | grep T\u25AElaunch # 3 \u258C a note");
         check(f && h, "f && h");
-        check((f->hierarchy == std::vector<std::string>{"1", "cmd | grep T", "launch # 3"}), "(f->hierarchy == std::vector<std::string>{\"1\", \"cmd | grep T\", \"launch # 3\"})");
-        check(f->comment == "a note" && h->hierarchy == f->hierarchy, "f->comment == \"a note\" && h->hierarchy == f->hierarchy");
+        check((f->values == std::vector<std::string>{"1", "cmd | grep T", "launch # 3"}), "(f->values == std::vector<std::string>{\"1\", \"cmd | grep T\", \"launch # 3\"})");
+        check(f->comment == "a note" && h->values == f->values, "f->comment == \"a note\" && h->values == f->values");
         check(f->fmt.separator == U'\u25AE' && f->fmt.bookend == U'\u258C', "f->fmt.separator == U'\\u25AE' && f->fmt.bookend == U'\\u258C'");
 
-        const auto empty = jtext::parse_line("1. \u25AE\u258C a\u25AE\u25AEb\u25AE", jtext::split_rule::fields);
-        check(empty && (empty->hierarchy == std::vector<std::string>{"a", "", "b", ""}), "empty && (empty->hierarchy == std::vector<std::string>{\"a\", \"\", \"b\", \"\"})");
+        const auto empty = jtext::parse_line("1. \u25AE\u258C a\u25AE\u25AEb\u25AE", jtext::split_rule::multifield);
+        check(empty && (empty->values == std::vector<std::string>{"a", "", "b", ""}), "empty && (empty->values == std::vector<std::string>{\"a\", \"\", \"b\", \"\"})");
 
         const auto legacy = jtext::parse_line("1. \u258C\u25AE\u258C x\u25AEy");    // old three-character form
         check(legacy && legacy->fmt.separator == U'\u25AE' && legacy->fmt.bookend == U'\u258C', "legacy && legacy->fmt.separator == U'\\u25AE' && legacy->fmt.bookend == U'\\u258C'");
@@ -457,7 +460,7 @@ int main() {
         std::size_t rows = 0;
         for (const auto& pl : lines) if (pl.number != 0) ++rows;
         check(rows == 2, "rows == 2");
-        check(lines.back().hierarchy == (std::vector<std::string>{"2", "c|d", "e"}), "lines.back().hierarchy == (std::vector<std::string>{\"2\", \"c|d\", \"e\"})");
+        check(lines.back().values == (std::vector<std::string>{"2", "c|d", "e"}), "lines.back().values == (std::vector<std::string>{\"2\", \"c|d\", \"e\"})");
     }
 
     {
@@ -585,7 +588,7 @@ int main() {
         check(file->sections[0].templates[0].opener_comment == "one statement", "file->sections[0].templates[0].opener_comment == \"one statement\"");
         const auto& value = file->sections[0].data_lines.back();
         check(value.kind == jtext::line_kind::multiline_opener && value.comment == "from worker 3", "value.kind == jtext::line_kind::multiline_opener && value.comment == \"from worker 3\"");
-        check(value.hierarchy == (std::vector<std::string>{"Traceback:\n\n  File \"main.py\" | # 12"}), "value.hierarchy == (std::vector<std::string>{\"Traceback:\\n\\n File \\\"main.py\\\" | # 12\"})");
+        check(value.values == (std::vector<std::string>{"Traceback:\n\n  File \"main.py\" | # 12"}), "value.values == (std::vector<std::string>{\"Traceback:\\n\\n File \\\"main.py\\\" | # 12\"})");
         check(kind(head) == "missing_closer", "kind(head) == \"missing_closer\"");                      // end of file
         check(kind(head + tail) == "missing_closer", "kind(head + tail) == \"missing_closer\"");               // a marker
         check(kind(head + "\n    *]\n" + tail) == "missing_closer", "kind(head + \"\\n *]\\n\" + tail) == \"missing_closer\""); // a blank line is not "**"
@@ -655,7 +658,7 @@ int main() {
         check(*replaced == head + dev + section("test", " 1. |# 1|qa.local\n") + prod + "=== End File ===\n", "*replaced == head + dev + section(\"test\", \" 1. |# 1|qa.local\\n\") + prod + \"=== End File ===\\n\"");
         const auto back = jtext::parse_file_structure(*replaced);
         check(back.has_value() && back->sections.size() == 3, "back.has_value() && back->sections.size() == 3");
-        check(back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{"1", "qa.local"}), "back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{\"1\", \"qa.local\"})");
+        check(back->sections[1].data_lines.back().values == (std::vector<std::string>{"1", "qa.local"}), "back->sections[1].data_lines.back().values == (std::vector<std::string>{\"1\", \"qa.local\"})");
 
         const std::string light =
             "# JText File - created x\n# jText Version: 0.8\n\n"
@@ -720,6 +723,61 @@ int main() {
     }
 
     {
+        // No nulls in a file (SPEC 2.6.1): the reader keeps NULL and {NULL} as text and
+        // reads the v0.7 marker U+001F as {NULL}; the writer writes {NULL} for a field
+        // given no value, and it reads back as that text.
+        using namespace jText::v001;
+        const auto path = std::filesystem::temp_directory_path() / "jtext_null_text_test.jtext";
+        {
+            std::ofstream fo(path);
+            fo << "# JText File - created 2026-01-01\n# jText Version: 0.8\n\n-- s --\n"
+                  " 1. |# 1|NULL|\x1F|{NULL}|\n-- End s --\n-- EOF --\n";
+        }
+        JTextFile f;
+        check(f.read_full(path.string()).has_value(), "the null-text file reads");
+        const auto& e = f.sections.at(0).entries.at(0);
+        check(e.fields.size() == 5 && *e.fields[1] == "NULL" && *e.fields[2] == "{NULL}" &&
+              *e.fields[3] == "{NULL}" && e.fields[4]->empty(),
+              "NULL stays text, U+001F reads as {NULL}, an empty value is empty");
+
+        std::ostringstream o;
+        JTextWriter w(o);
+        w.write_header();
+        w.begin_section("s");
+        JTextEntry row;
+        row.number = 1;
+        row.fields = {std::string("1"), std::nullopt, std::string("NULL")};
+        w.append_entry(row);
+        w.end_record();
+        w.finalize();
+        auto pf = jtext::parse_file_structure(o.str());
+        check(pf && pf->sections.at(0).data_lines.at(0).values ==
+                        (std::vector<std::string>{"1", "{NULL}", "NULL"}),
+              "the writer writes {NULL} for no value and keeps NULL as text");
+        std::filesystem::remove(path);
+    }
+
+    {
+        // A value that begins with the comment character and a space would read back as a
+        // comment (SPEC 3.2), so the writer picks another comment character for that row.
+        using namespace jText::v001;
+        std::ostringstream o;
+        JTextWriter w(o);
+        w.write_header();
+        w.begin_section("s");
+        w.append_row(2, {std::string("\xE2\x96\x8C lead")});
+        w.append_row(3, {std::string("# also")});
+        w.end_record();
+        w.finalize();
+        auto pf = jtext::parse_file_structure(o.str());
+        check(pf.has_value(), "the leading-comment file parses");
+        const auto& lines = pf->sections.at(0).data_lines;
+        check(lines.at(0).values == std::vector<std::string>{"\xE2\x96\x8C lead"} &&
+              lines.at(1).values == std::vector<std::string>{"# also"},
+              "values that begin with a comment character read back as written");
+    }
+
+    {
         // The format version (SPEC 2.3): a reader warns when it is missing, older, newer
         // or not a number; saving upgrades a missing or older one and never lowers a newer.
         using jtext::version_status;
@@ -774,9 +832,11 @@ int main() {
     }
 
     {
-        // end_record() ends a record with a blank line, so the next field-1 row starts a
-        // new record, on the direct and the auto-batched path. set_filename() gives a
-        // writer attached to a stream its header line 1, the file name only.
+        // end_record(): a record that is one multifield row from field 1 needs no blank
+        // line (the next row's "1." starts the next record); a record written one line
+        // per field ends with one. On the direct and the auto-batched path.
+        // set_filename() gives a writer attached to a stream its header line 1, the file
+        // name only.
         using namespace jText::v001;
         for (const std::size_t batch : {std::size_t{0}, std::size_t{10}}) {
             std::ostringstream o;
@@ -791,17 +851,24 @@ int main() {
             w.end_record();
             w.append_row(1, {std::string("2"), std::string("b")});
             w.end_record();
+            w.append_row(1, {std::string("3")});      // a record written one line per field
+            w.append_row(2, {std::string("c")});
+            w.end_record();
+            w.append_row(1, {std::string("4"), std::string("d")});
+            w.end_record();
             w.finalize();
             const std::string text = o.str();
-            check(text.find(" 1. \xE2\x96\xAE\xE2\x96\x8C conn.jtext\n") != std::string::npos, "text.find(\" 1. \\xE2\\x96\\xAE\\xE2\\x96\\x8C conn.jtext\\n\") != std::string::npos");
-            check(text.find("1\xE2\x96\xAE" "a\n\n") != std::string::npos, "text.find(\"1\\xE2\\x96\\xAE\" \"a\\n\\n\") != std::string::npos");
+            check(text.find(" 1. \xE2\x96\xAE\xE2\x96\x8C conn.jtext\n") != std::string::npos, "header line 1 is the file name");
+            check(text.find("1\xE2\x96\xAE" "a\n 1. ") != std::string::npos, "rows follow one another without a blank line");
+            check(text.find(" c\n\n 1. ") != std::string::npos, "a per-field record ends with a blank line");
+            check(text.find("4\xE2\x96\xAE" "d\n=== End Data") != std::string::npos, "no blank line after the last row");
             const auto file = jtext::parse_file_structure(text);
             check(file.has_value(), "file.has_value()");
             const auto& lines = file->sections.at(0).data_lines;
-            check(lines.size() == 3 && lines[1].number == 0, "lines.size() == 3 && lines[1].number == 0");   // row, record end, row
+            check(lines.size() == 6 && lines[4].number == 0, "row, row, 1., 2., record end, row");
             bool name = false;
             for (const auto& hl : file->header_lines)
-                if (hl.number == 1 && hl.hierarchy == std::vector<std::string>{"conn.jtext"}) name = true;
+                if (hl.number == 1 && hl.values == std::vector<std::string>{"conn.jtext"}) name = true;
             check(name, "name");
         }
     }
@@ -849,11 +916,11 @@ int main() {
         std::size_t rows = 0;
         for (const auto& pl : s.data_lines) if (pl.number != 0) ++rows;
         check(rows == 3, "rows == 3");   // the multiline record is two lines: fields 1 and 2
-        check(s.data_lines.front().hierarchy == (std::vector<std::string>{"1", "a|b # c"}), "s.data_lines.front().hierarchy == (std::vector<std::string>{\"1\", \"a|b # c\"})");
+        check(s.data_lines.front().values == (std::vector<std::string>{"1", "a|b # c"}), "s.data_lines.front().values == (std::vector<std::string>{\"1\", \"a|b # c\"})");
         bool purpose = false, version = false;
         for (const auto& hl : file->header_lines) {
-            if (hl.number == 3 && hl.hierarchy == std::vector<std::string>{"event log # main"}) purpose = true;
-            if (hl.number == 4 && hl.hierarchy == std::vector<std::string>{"0.8"}) version = true;
+            if (hl.number == 3 && hl.values == std::vector<std::string>{"event log # main"}) purpose = true;
+            if (hl.number == 4 && hl.values == std::vector<std::string>{"0.8"}) version = true;
         }
         check(purpose && version, "purpose && version");
 

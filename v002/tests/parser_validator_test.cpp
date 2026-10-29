@@ -125,7 +125,7 @@ bool template_validation_errors(const std::string& body,
 
 // A document whose record omits a Not Null field (field 2). The required-field
 // check runs at EVERY level, so this must error regardless of level.
-bool required_missing_errors(jtext::validation_level level) {
+bool not_empty_missing_errors(jtext::validation_level level) {
     const std::string doc =
         "=== jText File ===\n"
         " 1. #?# req_test\n"
@@ -134,7 +134,7 @@ bool required_missing_errors(jtext::validation_level level) {
         "\n"
         "=== Fields ===\n"
         " 1. #/# id/Number/Not Null\n"
-        " 2. #/# name/String/Not Null\n"
+        " 2. #/# name/String/Not Empty\n"
         "\n"
         "=== End Fields ===\n"
         "=== Data ===\n"
@@ -206,8 +206,8 @@ int main() {
         if (!r) {
             std::cerr << "FAIL[raw]: " << r.error().to_string() << "\n";
             ++failures;
-        } else if (r->hierarchy.size() != 1 ||
-                   r->hierarchy[0] != "Stanley's # hammer | still one field  " ||
+        } else if (r->values.size() != 1 ||
+                   r->values[0] != "Stanley's # hammer | still one field  " ||
                    !r->comment.empty() || !r->fmt.raw_data()) {
             std::cerr << "FAIL[raw]: [] keeps the whole line, including the trailing spaces\n";
             ++failures;
@@ -223,7 +223,7 @@ int main() {
         if (!r) {
             std::cerr << "FAIL[right-two]: " << r.error().to_string() << "\n";
             ++failures;
-        } else if (r->hierarchy.size() != 1 || r->hierarchy[0] != "ship^s flags" ||
+        } else if (r->values.size() != 1 || r->values[0] != "ship^s flags" ||
                    r->comment != "note" || r->fmt.separator != '|' ||
                    r->fmt.bookend != '#') {
             std::cerr << "FAIL[right-two]: kept |# , data, and the comment\n";
@@ -231,8 +231,8 @@ int main() {
         }
     }
 
-    // --- hierarchy ---
-    expect_err("1. #/# A//B", K::hierarchy_empty_segment, "hierarchy-empty-middle");
+    // --- levels (declaration and header lines) ---
+    expect_err("1. #/# A//B", K::empty_level, "levels-empty-middle");
 
     // --- multiline value opener; '[' is reserved for [] and [* ---
     expect_err("1. [* text", K::multiline_opener_text, "opener-text-not-comment");
@@ -241,7 +241,7 @@ int main() {
 
     // --- positives (must still parse) ---
     expect_ok("1. #?# hello world", "ok-simple-data");
-    expect_ok("1. #/# A/B/C",       "ok-hierarchy");
+    expect_ok("1. #/# A/B/C",       "ok-levels");
     expect_ok("1. [*",              "ok-multiline-opener");
     expect_ok("1. [* # a note",     "ok-multiline-opener-comment");
 
@@ -289,9 +289,9 @@ int main() {
     must( template_validation_errors("VALUES ({3})", L::strict),   "tmpl {3} should fail at STRICT");
 
     // A missing required (Not Null) field is checked at EVERY level:
-    must(required_missing_errors(L::minimal),  "missing-required should fail at MINIMAL");
-    must(required_missing_errors(L::standard), "missing-required should fail at STANDARD");
-    must(required_missing_errors(L::strict),   "missing-required should fail at STRICT");
+    must(not_empty_missing_errors(L::minimal),  "missing Not Empty field should fail at MINIMAL");
+    must(not_empty_missing_errors(L::standard), "missing Not Empty field should fail at STANDARD");
+    must(not_empty_missing_errors(L::strict),   "missing Not Empty field should fail at STRICT");
 
     // Sanity: a fully valid document passes cleanly at every level.
     must(!date_validation_errors("2026-06-23", L::minimal),  "valid doc should pass at MINIMAL");
@@ -485,6 +485,82 @@ int main() {
                        IK::record_value_type_mismatch), "non-GST value rejected");
     }
 
+    // ─── no nulls in a file (SPEC 2.6.1): {NULL} is text; Not Null / Not Empty ───
+    {
+        const std::string f3 = " 1. /# id/Integer\n 2. /# a/String/Not Null\n 3. /# b/String/Not Empty\n";
+        must(clean(validate_doc(f3, " 1. |# 1|x|y\n")), "values in both: clean");
+        must(has_issue(validate_doc(f3, " 1. |# 1|{NULL}|y\n"), IK::record_null_not_allowed),
+             "{NULL} in a Not Null field is an error");
+        must(clean(validate_doc(f3, " 1. |# 1||y\n")), "an empty Not Null field is fine");
+        must(has_issue(validate_doc(f3, " 1. |# 1|x|\n"), IK::record_empty_not_allowed),
+             "an empty Not Empty field is an error");
+        must(has_issue(validate_doc(f3, " 1. |# 1|x\n"), IK::record_empty_not_allowed),
+             "a missing Not Empty field is an error");
+        must(clean(validate_doc(f3, " 1. |# 1|x|{NULL}\n")), "{NULL} in a Not Empty field is fine");
+        auto words = validate_doc(" 1. /# id/Integer\n 2. /# a/String\n 3. /# b/String\n 4. /# c/String\n",
+                                  " 1. |# 1|NULL|\\N|\x1F\n");
+        must(words && words->file.sections[0].records[0].values ==
+                          (std::vector<std::string>{"1", "NULL", "\\N", "{NULL}"}),
+             "NULL and \\N stay text; U+001F reads as {NULL}");
+        must(has_issue(validate_doc(" 1. /# id/Integer\n 2. /# a/String/Not Null/Nullable\n", " 1. |# 1|x\n"),
+                       IK::field_invalid_constraint), "Nullable with Not Null is refused");
+    }
+
+    // ─── a date field always holds a date: NullDate(...) or 1900-01-01 ───
+    {
+        const std::string fd = " 1. /# id/Integer\n 2. /# d/Date\n";
+        must(has_issue(validate_doc(fd, " 1. |# 1|\n"), IK::record_date_missing), "an empty date is an error");
+        must(has_issue(validate_doc(fd, " 1. |# 1|{NULL}\n"), IK::record_date_missing), "a {NULL} date is an error");
+        must(has_issue(validate_doc(fd, " 1. ?# 1\n"), IK::record_date_missing), "a missing date is an error");
+        must(has_issue(validate_doc(fd, " 1. |# 1|\n", jtext::validation_level::minimal), IK::record_date_missing),
+             "dates are checked at minimal too");
+        must(clean(validate_doc(fd, " 1. |# 1|1900-01-01\n")), "the null date is a date");
+        auto nd = validate_doc(" 1. /# id/Integer\n 2. /# d/Date/NullDate(2000-01-01)\n 3. /# t/DateTime\n",
+                               " 1. |# 1|2000-01-01|2026-01-01 10:00:00\n");
+        must(clean(nd) && jtext::null_date(nd->file.sections[0].fields[1]) == "2000-01-01" &&
+             jtext::null_date(nd->file.sections[0].fields[2]) == "1900-01-01 00:00:00",
+             "NullDate(...) is the field's null date; a DateTime's default has a time");
+        must(has_issue(validate_doc(" 1. /# id/Integer\n 2. /# s/String/NullDate(2000-01-01)\n", " 1. |# 1|x\n"),
+                       IK::field_invalid_null_date), "NullDate on a String is refused");
+        must(has_issue(validate_doc(" 1. /# id/Integer\n 2. /# d/Date/NullDate(2000-13-01)\n", " 1. |# 1|2000-01-01\n"),
+                       IK::field_invalid_null_date), "an invalid NullDate is refused");
+    }
+
+    // ─── a record continues after a multiline value (SPEC 5.1 rule 8) ───
+    {
+        const std::string f4 = " 1. /# id/Integer\n 2. /# a/String\n 3. /# m/String\n 4. /# b/String\n";
+        auto vr = validate_doc(f4, " 1. |# 1|x\n 3. [*\n    ** line one\n    ** line two\n    *]\n 4. ?# y\n");
+        must(clean(vr) && vr->file.sections[0].records.size() == 1 &&
+             vr->file.sections[0].records[0].values ==
+                 (std::vector<std::string>{"1", "x", "line one\nline two", "y"}),
+             "multifield row, multiline value, next field: one record");
+        auto rows = validate_doc(f4, " 1. |# 1|x\n 1. |# 2|y\n");
+        must(clean(rows) && rows->file.sections[0].records.size() == 2,
+             "a line for field 1 starts a new record, blank line or not");
+        must(has_issue(validate_doc(f4, " 1. |# 1|x|m\n 2. ?# y\n"), IK::record_field_out_of_sequence),
+             "a field before the last one filled is out of sequence");
+        auto two = validate_doc(f4, " 1. |# 1|x\n\n 1. |# 2|y\n");
+        must(clean(two) && two->file.sections[0].records.size() == 2, "a blank line ends a record");
+    }
+
+    // ─── a comment character as the first data character opens a comment (SPEC 3.2) ───
+    {
+        auto c1 = jtext::parse_line(" 4. ?# # Note", jtext::split_rule::multifield);
+        must(c1 && c1->values == std::vector<std::string>{""} && c1->comment == "Note",
+             "'?# # Note': empty value, comment 'Note'");
+        auto c2 = jtext::parse_line(" 4. ?# # # Note", jtext::split_rule::multifield);
+        must(c2 && c2->values == std::vector<std::string>{""} && c2->comment == "# Note",
+             "'?# # # Note': comment '# Note'");
+        auto c3 = jtext::parse_line(" 4. ?# #", jtext::split_rule::multifield);
+        must(c3 && c3->values == std::vector<std::string>{""} && c3->comment.empty(),
+             "'?# #': empty value, empty comment");
+        auto c4 = jtext::parse_line(" 4. ?# C# compiler", jtext::split_rule::multifield);
+        must(c4 && c4->values == std::vector<std::string>{"C# compiler"} && c4->comment.empty(),
+             "'C#' is data");
+        auto c5 = jtext::parse_line(" 4. ?# #5 order", jtext::split_rule::multifield);
+        must(c5 && c5->values == std::vector<std::string>{"#5 order"}, "'#5' (no space) is data");
+    }
+
     // ─── jtext_version (SPEC 2.3): a warning, never an error ───
     {
         const auto with_version = [](const std::string& line4) {
@@ -539,10 +615,10 @@ int main() {
               << yn(template_validation_errors("VALUES ({3})", L::minimal))  << "     "
               << yn(template_validation_errors("VALUES ({3})", L::standard)) << "     "
               << yn(template_validation_errors("VALUES ({3})", L::strict))   << "\n";
-    std::cout << "  missing Not Null field       "
-              << yn(required_missing_errors(L::minimal))  << "     "
-              << yn(required_missing_errors(L::standard)) << "     "
-              << yn(required_missing_errors(L::strict))   << "\n";
+    std::cout << "  missing Not Empty field      "
+              << yn(not_empty_missing_errors(L::minimal))  << "     "
+              << yn(not_empty_missing_errors(L::standard)) << "     "
+              << yn(not_empty_missing_errors(L::strict))   << "\n";
     std::cout << "  valid document               "
               << yn(date_validation_errors("2026-06-23", L::minimal))  << "     "
               << yn(date_validation_errors("2026-06-23", L::standard)) << "     "

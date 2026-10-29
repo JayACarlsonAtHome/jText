@@ -82,44 +82,40 @@ static auto is_plain_integer(const std::string& v) -> bool
 }
 
 // Produce the SQL literal for one field value, driven by the field's declared
-// TYPE (not by column position). This is schema-agnostic and injection-safe:
-//   - String : missing(nullopt) -> NULL; empty -> '' (preserved); else quoted+escaped.
-//   - Number : missing/empty -> NULL; a plain integer is emitted unquoted; any
-//              other text is quoted+escaped defensively (the validator normally
-//              rejects non-numeric Number values before we get here).
-//   - Date / DateTime / GST : missing/empty -> NULL; always quoted+escaped (never raw).
-//   - Integer: like Number (a plain integer unquoted; anything else quoted).
-//   - Bool   : missing/empty -> NULL; a Bool value -> TRUE / FALSE (SQL standard
-//              boolean literals); anything else quoted+escaped defensively.
-static auto sql_literal(jtext::field_type type, const std::optional<std::string>& val) -> std::string
+// TYPE (not by column position). This is schema-agnostic and injection-safe. A file
+// holds no nulls (SPEC 2.6.1): {NULL} is the one value that becomes SQL NULL, for
+// every type, and an empty value is ''.
+//   - String : quoted+escaped.
+//   - Number / Integer: a plain integer is emitted unquoted; any other text is
+//              quoted+escaped defensively (the validator normally rejects
+//              non-numeric values before we get here).
+//   - Date / DateTime / GST : quoted+escaped (a date field always holds a date:
+//              the validator refuses an empty one before we get here).
+//   - Bool   : a Bool value -> TRUE / FALSE (SQL standard boolean literals);
+//              anything else quoted+escaped defensively.
+static auto sql_literal(const jtext::field& f, const std::string& val) -> std::string
 {
-    switch (type) {
+    if (val == jtext::kNullValue) return "NULL";
+    switch (f.type) {
     case jtext::field_type::bool_type: {
-        if (!val.has_value() || val->empty()) return "NULL";
-        const auto b = jtext::parse_bool_value(*val);
-        return b ? (*b ? "TRUE" : "FALSE") : sql_string_literal(*val);
+        const auto b = jtext::parse_bool_value(val);
+        return b ? (*b ? "TRUE" : "FALSE") : sql_string_literal(val);
     }
     case jtext::field_type::integer_type:
     case jtext::field_type::number_type:
-        if (!val.has_value() || val->empty()) return "NULL";
-        return is_plain_integer(*val) ? *val : sql_string_literal(*val);
+        return is_plain_integer(val) ? val : sql_string_literal(val);
     case jtext::field_type::date_type:
     case jtext::field_type::datetime_type:
     case jtext::field_type::gst_type:
-        if (!val.has_value() || val->empty()) return "NULL";
-        return sql_string_literal(*val);
     case jtext::field_type::string_type:
     default:
-        if (!val.has_value()) return "NULL";   // missing field
-        if (val->empty())     return "''";     // deliberate empty string for Nullable String
-        return sql_string_literal(*val);
+        return sql_string_literal(val);
     }
 }
 
 // Substitute {1}..{N} in the template body with correctly quoted literals.
 // Field types come from the validated section schema; value position i maps to
-// field i (1-based via {i+1}). Positions beyond the declared fields default to
-// String quoting (safe).
+// field i (1-based via {i+1}).
 static auto substitute_record(const std::string& tmpl,
                               const jtext::record& rec,
                               const std::vector<jtext::field>& fields) -> std::string
@@ -127,10 +123,10 @@ static auto substitute_record(const std::string& tmpl,
     std::string out = tmpl;
 
     for (std::size_t i = 0; i < rec.values.size(); ++i) {
-        const jtext::field_type type =
-            (i < fields.size()) ? fields[i].type : jtext::field_type::string_type;
+        static const jtext::field kStringField{};   // past the declared fields: String quoting (safe)
+        const jtext::field& f = i < fields.size() ? fields[i] : kStringField;
         std::string placeholder = "{" + std::to_string(i + 1) + "}";
-        std::string replacement = sql_literal(type, rec.values[i]);
+        std::string replacement = sql_literal(f, rec.values[i]);
 
         std::string::size_type pos = 0;
         while ((pos = out.find(placeholder, pos)) != std::string::npos) {

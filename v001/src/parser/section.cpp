@@ -261,7 +261,7 @@ auto consume_value(const std::vector<std::string>& lines, std::size_t start)
 // failure, wraps the parse_error in a file_error pointing at the
 // 1-based source line.
 auto parse_one_line(std::string_view raw, std::size_t line_no,
-                    split_rule rule = split_rule::hierarchy)
+                    split_rule rule = split_rule::levels)
     -> std::expected<parsed_line, file_error>
 {
     auto r = parse_line(raw, rule);
@@ -487,7 +487,7 @@ auto build_one_section(
             // Fields-block lines are declarations ("id/Identity(1,1)/Not Null"): levels.
             // Everything else here is a data row: values.
             auto pl_or_err = parse_one_line(stripped, line_no,
-                state == section_state::reading_fields ? split_rule::hierarchy : split_rule::fields);
+                state == section_state::reading_fields ? split_rule::levels : split_rule::multifield);
             if (!pl_or_err) return std::unexpected{pl_or_err.error()};
             const auto& pl = *pl_or_err;
 
@@ -511,7 +511,7 @@ auto build_one_section(
                     ++cursor;
                     auto body_or_err = consume_value(lines, cursor);
                     if (!body_or_err) return std::unexpected{body_or_err.error()};
-                    sec.data_lines[idx].hierarchy = {body_or_err->first};   // the field's value
+                    sec.data_lines[idx].values = {body_or_err->first};   // the field's value
                     sec.data_multiline_bodies.push_back(
                         multiline_body{idx, std::move(body_or_err->first)});
                     cursor = body_or_err->second;
@@ -615,7 +615,7 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
                                    interior));
         }
 
-        auto pl_or_err = parse_one_line(stripped, line_no, split_rule::fields);
+        auto pl_or_err = parse_one_line(stripped, line_no, split_rule::multifield);
         if (!pl_or_err) return std::unexpected{pl_or_err.error()};
         const auto pl = *pl_or_err;
         if (!data_seen) {
@@ -627,7 +627,7 @@ auto build_light_section(const std::vector<std::string>& lines, std::size_t& cur
         if (pl.kind == line_kind::multiline_opener) {
             auto body_or_err = consume_value(lines, cursor);
             if (!body_or_err) return std::unexpected{body_or_err.error()};
-            sec.data_lines.back().hierarchy = {body_or_err->first};   // the field's value
+            sec.data_lines.back().values = {body_or_err->first};   // the field's value
             sec.data_multiline_bodies.push_back(
                 multiline_body{sec.data_lines.size() - 1, std::move(body_or_err->first)});
             cursor = body_or_err->second;
@@ -956,7 +956,7 @@ auto declared_version(const parsed_file& pf) -> std::string
     for (const auto& hl : pf.header_lines) {
         if (hl.number != 4) continue;
         std::string v;
-        for (const auto& level : hl.hierarchy) {
+        for (const auto& level : hl.values) {
             if (!v.empty()) v.push_back('/');
             v += level;
         }

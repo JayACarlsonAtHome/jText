@@ -87,21 +87,18 @@ auto entry_from_line(jtext::parsed_line pl) -> JTextEntry
     e.number = pl.number;
     e.comment = std::move(pl.comment);
     if (pl.kind == jtext::line_kind::multiline_opener) {
-        e.fields.emplace_back(pl.hierarchy.empty() ? std::string{} : std::move(pl.hierarchy[0]));
+        e.fields.emplace_back(pl.values.empty() ? std::string{} : std::move(pl.values[0]));
         return e;
     }
     e.delimiter = pl.fmt.bookend;
     e.level_sep = pl.fmt.raw_data() ? 0 : pl.fmt.separator;
 
-    auto& values = pl.hierarchy;
-    if (values.size() == 1 && (values[0] == "NULL" || values[0] == "null" || values[0] == "Null")
-        && !pl.fmt.raw_data()) {
-        e.is_null = true;
-        e.fields.emplace_back("NULL");
-    } else if (!(values.size() == 1 && values[0].empty())) {
+    // Values are text (SPEC 2.6.1): "NULL" and "{NULL}" stay as written. U+001F was the
+    // v0.7 compact-row null marker; it reads as {NULL}.
+    auto& values = pl.values;
+    if (!(values.size() == 1 && values[0].empty())) {
         for (auto& v : values) {
-            // U+001F is the null marker of a compact row (SPEC 2.6.3); the writer emits it.
-            if (v == "\x1F") e.fields.emplace_back(std::nullopt);
+            if (v == "\x1F") e.fields.emplace_back(std::string{jtext::kNullValue});
             else e.fields.emplace_back(std::move(v));
         }
     }
@@ -135,8 +132,8 @@ auto JTextFile::read_file(std::string_view filepath, std::string_view only_secti
     // header lines by position (SPEC 2.3).
     for (const auto& m : parsed->metadata) parse_header(m);
     for (const auto& hl : parsed->header_lines) {
-        if (hl.hierarchy.size() != 1) continue;
-        const auto& value = hl.hierarchy[0];
+        if (hl.values.size() != 1) continue;
+        const auto& value = hl.values[0];
         switch (hl.number) {
         case 2: date = value; break;
         case 3: purpose = value; break;
@@ -445,9 +442,16 @@ void write_header_block(std::ostream& out,
 static constexpr std::string_view kBookendChoices = "#^%~!@$&*+=:;?\"'(),./<>\\_`{}|-";
 
 // True when the parser would open a comment inside `field`: the bookend with a
-// space on each side, or a trailing " b" on the last field when a comment follows.
-static bool field_has_comment_marker(std::string_view field, char b, bool last_before_comment)
+// space on each side, a trailing " b" on the last field when a comment follows, or,
+// on the line's first field, the bookend as its first character followed by a space
+// or by the end of the line (SPEC 3.2).
+static bool field_has_comment_marker(std::string_view field, char b, bool first, bool only,
+                                     bool last_before_comment)
 {
+    if (first) {
+        const auto t = field.substr(std::min(field.find_first_not_of(' '), field.size()));
+        if (!t.empty() && t[0] == b && (t.size() > 1 ? t[1] == ' ' : only)) return true;
+    }
     for (std::size_t i = 1; i < field.size(); ++i) {
         if (field[i] != b || field[i - 1] != ' ') continue;
         if (i + 1 < field.size() ? field[i + 1] == ' ' : last_before_comment) return true;
@@ -489,7 +493,8 @@ static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& f
         if (b == sep) continue;
         bool clash = false;
         for (std::size_t i = 0; i < fields.size() && !clash; ++i)
-            clash = field_has_comment_marker(field_text(fields[i]), b, has_comment && i + 1 == fields.size());
+            clash = field_has_comment_marker(field_text(fields[i]), b, i == 0, fields.size() == 1,
+                                             has_comment && i + 1 == fields.size());
         if (!clash) return b;
     }
     return '#';
@@ -587,6 +592,14 @@ static RowFormat row_format(char32_t requested_bookend, char32_t level_sep, cons
     return f;
 }
 
+// A field as written: its text, or {NULL} for a field given no value (SPEC 2.6.1).
+static std::string_view field_or_null(const std::optional<std::string>& f)
+{
+    return f ? std::string_view(*f) : jtext::kNullValue;
+}
+
+static std::string_view field_or_null(const std::string& f) { return f; }
+
 void write_entry_to_stream(std::ostream& out, const JTextEntry& e, std::size_t pad_width,
                            char32_t sep_cp, char32_t bookend_cp)
 {
@@ -602,11 +615,7 @@ void write_entry_to_stream(std::ostream& out, const JTextEntry& e, std::size_t p
     for (std::size_t i = 0; i < e.fields.size(); ++i) {
         if (i > 0) out << sep;
         const auto& f = e.fields[i];
-        if (!f.has_value()) {
-            out << '\x1F';  // official null marker for compact (chosen ASCII US)
-        } else {
-            out << *f;
-        }
+        out << field_or_null(f);
     }
 
     if (!e.comment.empty()) {
@@ -636,11 +645,7 @@ static std::string format_entry(const JTextEntry& e, std::size_t pad_width, char
     for (std::size_t i = 0; i < e.fields.size(); ++i) {
         if (i > 0) s += sep;
         const auto& f = e.fields[i];
-        if (!f.has_value()) {
-            s += '\x1F';
-        } else {
-            s += *f;
-        }
+        s += field_or_null(f);
     }
 
     if (!e.comment.empty()) {
@@ -691,13 +696,6 @@ static std::string format_row(std::size_t number,
     return s;
 }
 
-// A field as written: its text, or the compact-row null marker U+001F (SPEC 2.6.3).
-static std::string_view field_or_null(const std::optional<std::string>& f)
-{
-    return f ? std::string_view(*f) : std::string_view("\x1F", 1);
-}
-
-static std::string_view field_or_null(const std::string& f) { return f; }
 
 // A row with a field that holds a newline (SPEC 5): the fields before it
 // are a compact row, that field is a multiline value on its own numbered line, and
@@ -1015,6 +1013,7 @@ void JTextWriter::begin_fields()
     *out_ << "=== Fields ===\n";
     full_block_ = FullBlock::fields;
     fields_written_ = true;
+    record_lines_ = 0;   // field lines are not a record
 }
 
 void JTextWriter::end_fields()
@@ -1035,6 +1034,7 @@ void JTextWriter::begin_data()
     flush_pending_batch();
     *out_ << "=== Data ===\n";
     full_block_ = FullBlock::data;
+    record_lines_ = 0;
 }
 
 void JTextWriter::begin_section(std::string_view name)
@@ -1046,6 +1046,7 @@ void JTextWriter::begin_section(std::string_view name)
     flush_pending_batch();   // never buffer across section boundaries
     line_pad_width_ = 2;
     last_record_id_.reset(); // record ids are per section (per table)
+    record_lines_ = 0;
     if (profile_ == JTextProfile::Full) {
         close_full_section();
         section_ = name;
@@ -1077,6 +1078,7 @@ void JTextWriter::append_entry(const JTextEntry& entry)
 
     JTextEntry scratch;
     const JTextEntry& e = resolve_record_id(entry, scratch);
+    count_record_line(e.number, e.fields.size(), fmt.multiline);
 
     if (fmt.multiline) {
         write_lines(format_multiline_record(e.number, e.fields, e.comment, fmt.sep, fmt.bookend,
@@ -1120,6 +1122,7 @@ void JTextWriter::append_entries(std::span<const JTextEntry> entries)
         for (std::size_t n = 0; n < entries.size(); ++n) {
             if (!keep(n)) continue;
             const JTextEntry& e = resolve_record_id(entries[n], scratch);
+            count_record_line(e.number, e.fields.size(), formats[n].multiline);
             if (formats[n].multiline) {
                 write_lines(format_multiline_record(e.number, e.fields, e.comment, formats[n].sep,
                                                     formats[n].bookend, line_pad_width_));
@@ -1134,6 +1137,7 @@ void JTextWriter::append_entries(std::span<const JTextEntry> entries)
         for (std::size_t n = 0; n < entries.size(); ++n) {
             if (!keep(n)) continue;
             const JTextEntry& e = resolve_record_id(entries[n], scratch);
+            count_record_line(e.number, e.fields.size(), formats[n].multiline);
             if (formats[n].multiline) {
                 write_lines(format_multiline_record(e.number, e.fields, e.comment, formats[n].sep,
                                                     formats[n].bookend, line_pad_width_));
@@ -1172,6 +1176,7 @@ void JTextWriter::append_row(std::size_t number,
         return;
     }
     if (number == 1) note_record_id(fields[0]);
+    count_record_line(number, fields.size(), fmt.multiline);
 
     if (fmt.multiline) {
         write_lines(format_multiline_record(number, fields, comment, fmt.sep, fmt.bookend, line_pad_width_));
@@ -1197,7 +1202,15 @@ void JTextWriter::end_record()
 {
     ensure_not_finalized();
     if (!out_) return;
-    write_lines("\n");
+    if (record_lines_ > 0 && !(record_lines_ == 1 && record_is_row_)) write_lines("\n");
+    record_lines_ = 0;
+    record_is_row_ = false;
+}
+
+void JTextWriter::count_record_line(std::size_t number, std::size_t field_count, bool multiline)
+{
+    record_is_row_ = record_lines_ == 0 && number == 1 && field_count > 1 && !multiline;
+    record_lines_ += multiline ? 2 : 1;
 }
 
 void JTextWriter::write_lines(std::string text)

@@ -134,8 +134,9 @@ auto parse_gst_value(std::string_view s) -> std::optional<gst_value>;
 //  Per SPEC Section 2.4 the syntax is:
 //    <name> / <segment> [ / <segment> ... ]   (up to 4 segments)
 //  where the segments, in any order and each at most once, are a type,
-//  an auto designation, a length, and a constraint ("Not Null" or
-//  "Nullable", the default). A type or an auto designation is required.
+//  an auto designation, a length, the constraints "Not Null" and "Not Empty"
+//  (or "Nullable", the default), and, for Date/DateTime, NullDate(YYYY-MM-DD).
+//  A type or an auto designation is required.
 // ──────────────────────────────────────────────────────────────
 
 struct field {
@@ -143,7 +144,10 @@ struct field {
     std::string                    name;
     field_type                     type        = field_type::string_type;
     std::optional<std::size_t>     max_length;       // String length cap if declared
-    bool                           required    = false;  // Not Null
+    bool                           not_null    = false;  // Not Null: never {NULL}
+    bool                           not_empty   = false;  // Not Empty: never ""
+    // Date/DateTime: the date that stands for "no date" (SPEC 2.6.1); see null_date().
+    std::string                    null_date;
     std::string                    comment;          // inline comment on the field line
     // Set when the declaration carries an auto designation (Section 2.4.3);
     // only meaningful on field 1, the record id.
@@ -153,25 +157,15 @@ struct field {
 // ──────────────────────────────────────────────────────────────
 //  record
 //
-//  One assembled record. values[i] is the value for field position
-//  i+1 (so values[0] holds field 1). Each value is either:
-//    - nullopt: the field was not present in this record (missing)
-//    - empty string "": the field appeared with no data (empty)
-//    - non-empty string: the field's data value (single-segment
-//      hierarchies; multi-segment hierarchies are encoded as a
-//      string with the original separator preserved? — for now,
-//      only single-segment values land here; multi-segment data
-//      values are encoded as the joined string with '/' separator
-//      and that's flagged by the field's hierarchical_value bit)
-//
-//  Per SPEC 2.6.1, the distinction between empty ("") and missing
-//  (nullopt) is preserved for String fields. For Number and Date
-//  fields, both states are semantically equivalent (NULL).
+//  One assembled record. values[i] is the text of field position i+1
+//  (values[0] is field 1, the record id). A file holds no nulls (SPEC
+//  2.6.1): a field whose line is missing, or has no data, is "", and
+//  {NULL} is the text "{NULL}" (kNullValue), as written.
 // ──────────────────────────────────────────────────────────────
 
 struct record {
     std::size_t                              source_line_no = 0;
-    std::vector<std::optional<std::string>>  values;
+    std::vector<std::string>                 values;
     // Field 1, the mandatory record id (SPEC Section 2.6.4), as an integer.
     // nullopt when field 1 is missing or not an integer (both reported).
     std::optional<std::int64_t>              record_id;
@@ -231,21 +225,23 @@ enum class issue_kind : std::uint8_t {
     field_invalid_declaration,        // declaration line has wrong shape
     field_invalid_type,               // type token not String/Number/Date
     field_invalid_length,             // length not a positive integer
-    field_invalid_constraint,         // constraint token not Not Null/Nullable
+    field_invalid_constraint,         // segment not a type, length or constraint, or repeated
     field_empty_name,                 // name is empty
     field_position_out_of_range,      // position not in 1..N or duplicate
     field_position_gap,               // positions are not contiguous from 1
     field_position_duplicate,         // same position declared twice
     field_record_id_invalid,          // field 1 is not an integer type, or is Nullable
+    field_invalid_null_date,          // NullDate(...) not a date, or on a non-date field
 
     // Records
     record_field_out_of_range,        // record references field > field_count
     record_field_duplicate,           // same field appears twice in one record
     record_field_out_of_sequence,     // field number not strictly increasing
-    record_missing_required_field,    // Not Null field absent or empty
+    record_null_not_allowed,          // Not Null field holds {NULL}
+    record_empty_not_allowed,         // Not Empty field is empty or missing
+    record_date_missing,              // Date/DateTime field is empty or {NULL}
     record_value_type_mismatch,       // value not parseable as declared type
     record_value_length_exceeded,     // String value longer than max_length
-    record_hierarchical_value,        // value is a hierarchy (>1 segment) in a record line
     record_missing_record_id,         // field 1 (the record id) absent or empty
     record_id_not_integer,            // field 1 value is not an integer
     record_gst_leap_seconds,          // Warning 1: GST ticks past one year (leap seconds)
@@ -317,15 +313,15 @@ struct validate_result {
 //  trading thoroughness for speed. Higher levels are supersets of
 //  lower ones.
 //
-//   - minimal:  structural integrity + required (Not Null) presence.
+//   - minimal:  structural integrity + Not Null / Not Empty / dates present.
 //               No per-value parsing — the fast path for trusted data.
 //   - standard: minimal + per-value type/format checks (Number,
 //               strict YYYY-MM-DD Date) + String length caps.
 //   - strict:   standard + template {N} placeholder range checks.
 //               Maximum scrutiny; use for critical/financial data.
 //
-//  Advisory warnings (empty section, duplicate name, hierarchical
-//  value in a record) are reported at every level and never gate
+//  Advisory warnings (empty section, duplicate name, jtext_version,
+//  GST past a year) are reported at every level and never gate
 //  has_errors().
 // ──────────────────────────────────────────────────────────────
 
@@ -347,12 +343,9 @@ enum class validation_level : std::uint8_t {
 auto validate(const parsed_file& pf,
               validation_level   level = validation_level::strict) -> validate_result;
 
-// In-memory numbered template substitution (e.g. "INSERT ... VALUES ({1}, {2})").
-// values[0] replaces {1}, etc. Useful for "in memory procedure" processing of
-// records against templates (e.g. ts_store roundtrips to SQL) without materializing
-// full .jtFull or .sql files on disk. For debugging the .jtFull is still supported.
-std::string apply_numbered_template(std::string_view body,
-                                    const std::vector<std::optional<std::string>>& values);
+// The date a Date or DateTime field stores where there is none (SPEC 2.6.1): its
+// NullDate(...), else kDefaultNullDate ("1900-01-01"); a DateTime gets " 00:00:00".
+auto null_date(const field& f) -> std::string;
 
 }  // namespace jtext
 

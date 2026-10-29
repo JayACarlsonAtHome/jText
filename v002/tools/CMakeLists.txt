@@ -9,7 +9,8 @@
 #   jtext_close    : adds the closers a file is missing (cut off mid-write, or
 #                    written before closers were required), so it reads again.
 #   jtext_from_sql : DB -> jText. Reads a PostgreSQL table/query (through psql)
-#                    and generates the four jText component files. std-only.
+#                    and generates the four jText component files (in the
+#                    format version of jText::jText).
 
 option(JTEXT_BUILD_TOOLS "Build the jText command-line tools" ON)
 
@@ -25,6 +26,7 @@ if(JTEXT_BUILD_TOOLS)
     set_target_properties(jtext_close PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 
     add_executable(jtext_from_sql jtext_from_sql.cpp)
+    target_link_libraries(jtext_from_sql PRIVATE jText::jText)
     target_compile_features(jtext_from_sql PRIVATE cxx_std_26)
     set_target_properties(jtext_from_sql PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 
@@ -49,6 +51,7 @@ if(JTEXT_BUILD_TOOLS)
         add_test(NAME tool_jtext_from_sql_args
             COMMAND ${CMAKE_COMMAND}
                 -DTOOL=$<TARGET_FILE:jtext_from_sql>
+                -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_args.cmake)
 
         # Hardening regression tests.

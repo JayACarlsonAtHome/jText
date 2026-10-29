@@ -1,19 +1,24 @@
 //File:    workshop_from_db.jtext
-//Date:    2026-06-05
+//Date:    2026-10-29
 //Purpose: jText Data File
 //Related: type=PostgreSQL table=workshop_tools
 //
-
 === jText File ===
- 1. #?# workshop_from_db.jtext
- 2. #?# 2026-05-31
- 3. #?# Data retrieved from PostgreSQL table workshop_tools
- 4. #?# 0.8
+ 1. ?# workshop_from_db.jtext
+ 2. ?# 2026-10-29
+ 3. ?# Data retrieved from PostgreSQL table workshop_tools
+ 4. ?# 0.8
 
 === Section: workshop_tools ===
 === Fields ===
 // (In real use you would use === <#include#> Fields: workshop_from_db.jtFlds ===)
- 1. #/# psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist/String
+ 1. /# id/Number/Not Null
+ 2. /# name/String/Not Null
+ 3. /# category/String/Not Null
+ 4. /# acquired/Date/Nullable
+ 5. /# condition/String/Not Null
+ 6. /# location/String/Nullable
+ 7. /# notes/String/Nullable
 === End Fields ===
 === Data ===
 // TODO: Run a data query and emit actual records here

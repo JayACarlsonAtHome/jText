@@ -1,8 +1,14 @@
 //File:    workshop_from_db.jtFlds
-//Date:    2026-06-05
+//Date:    2026-10-29
 //Purpose: jText Field List File
 //Related: type=PostgreSQL table=workshop_tools
 //
-
 === Fields ===
- 1. #/# psql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "jay" does not exist/String/Nullable
+ 1. /# id/Number/Not Null
+ 2. /# name/String/Not Null
+ 3. /# category/String/Not Null
+ 4. /# acquired/Date/Nullable
+ 5. /# condition/String/Not Null
+ 6. /# location/String/Nullable
+ 7. /# notes/String/Nullable
+=== End Fields ===

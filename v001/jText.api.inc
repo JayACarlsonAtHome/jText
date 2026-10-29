@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.016"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.017"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -36,9 +36,10 @@ struct JTextEntry {
     char32_t delimiter = 0;       // the comment character; 0 = the writer picks (U+258C unless the data holds it)
     char32_t level_sep = 0;       // the separator; 0 = the writer picks (U+25AE unless the data holds it), otherwise
                                   // (any Unicode punctuation or symbol, e.g. U'|' or U'\u25AE')
-    std::vector<std::optional<std::string>> fields;  // nullopt = null value; for compact ts_store, null is encoded as \x1F when writing
+    // The values, as text. A file holds no nulls (SPEC 2.6.1): a field given no value
+    // (nullopt) is written as {NULL}, and the reader returns {NULL} as that text.
+    std::vector<std::optional<std::string>> fields;
     std::string comment;
-    bool is_null = false;  // legacy per-entry
 };
 
 struct JTextSection {
@@ -164,7 +165,10 @@ public:
     // Append a complete entry
     void append_entry(const JTextEntry& entry);
 
-    // End the record just written: the blank line that separates it from the next.
+    // End the record just written. A record written as lines of its own (one per field,
+    // or broken by a multiline value) ends with a blank line. A record that is one
+    // multifield row from field 1 needs none: the next row's "1." starts the next
+    // record, so rows follow one another directly (SPEC 2.6).
     void end_record();
 
     // Batch append — recommended for high-volume use (ts_store, double-buffering, etc.)
@@ -244,6 +248,11 @@ private:
 
     BadRowPolicy bad_row_policy_ = BadRowPolicy::Terminate;
     std::size_t skipped_rows_ = 0;
+    // The record being written (see end_record): its lines so far, and whether its one
+    // line is a whole multifield row from field 1.
+    std::size_t record_lines_ = 0;
+    bool record_is_row_ = false;
+    void count_record_line(std::size_t number, std::size_t field_count, bool multiline);
     std::string section_;   // current section, for error messages
     bool section_open_ = false;   // a section waits for its closer
     JTextProfile profile_ = JTextProfile::Light;

@@ -13,7 +13,7 @@
 //   7. Skip whitespace
 //   8. Scan rest of line for the comment marker (bookend + whitespace
 //      on both sides). Everything before = data, after = comment.
-//   9. Split data on the separator if present → hierarchy
+//   9. Split data on the separator if present → values (levels or a multifield line)
 
 #include "line.hpp"
 
@@ -109,7 +109,7 @@ auto find_comment_marker(std::string_view data_region, std::string_view b) -> st
 //
 //    - leading separator → cosmetic, ignored
 //    - trailing separator → cosmetic, ignored
-//    - any empty segment anywhere → ERROR (hierarchy_empty_segment)
+//    - any empty segment anywhere → ERROR (empty_level)
 //      including the "all separators" case like "///"
 //
 //  If `data` contains no `sep`, returns a single-element vector
@@ -120,7 +120,7 @@ auto find_comment_marker(std::string_view data_region, std::string_view b) -> st
 //  starts, used for error reporting.
 // ──────────────────────────────────────────────────────────────
 
-auto split_hierarchy(std::string_view data, std::string_view sep, std::size_t col_base)
+auto split_levels(std::string_view data, std::string_view sep, std::size_t col_base)
     -> std::expected<std::vector<std::string>, parse_error>
 {
     // No separator in data → flat single value.
@@ -128,7 +128,7 @@ auto split_hierarchy(std::string_view data, std::string_view sep, std::size_t co
         return std::vector<std::string>{std::string{data}};
     }
 
-    // Has separator → parse as hierarchy. Strip ONE leading and ONE
+    // Has separator → split into levels. Strip ONE leading and ONE
     // trailing separator (cosmetic), then split the remainder.
     auto core = data;
     std::size_t offset = 0;
@@ -141,9 +141,9 @@ auto split_hierarchy(std::string_view data, std::string_view sep, std::size_t co
         const auto at = core.find(sep, start);
         const auto piece = trim(core.substr(start, at == std::string_view::npos ? std::string_view::npos : at - start));
         if (piece.empty()) {
-            return err(parse_error_kind::hierarchy_empty_segment,
+            return err(parse_error_kind::empty_level,
                        col_base + offset + start,
-                       "hierarchy contains an empty segment");
+                       "a level is empty");
         }
         segments.emplace_back(piece);
         if (at == std::string_view::npos) break;
@@ -152,10 +152,10 @@ auto split_hierarchy(std::string_view data, std::string_view sep, std::size_t co
     return segments;
 }
 
-// Split a compact row's values on `sep`. Every separator splits and an
+// Split a multifield line's values on `sep`. Every separator splits and an
 // empty value is kept, so "a||b|" is ["a", "", "b", ""]: what the writer
 // joined comes back as it was. Values are trimmed (SPEC 3.4).
-auto split_fields(std::string_view data, std::string_view sep) -> std::vector<std::string>
+auto split_multifield(std::string_view data, std::string_view sep) -> std::vector<std::string>
 {
     std::vector<std::string> values;
     std::size_t start = 0;
@@ -255,7 +255,7 @@ auto to_string(parse_error_kind k) -> std::string_view
         case parse_error_kind::formatter_too_short:                return "formatter_too_short";
         case parse_error_kind::formatter_separator_equals_bookend: return "formatter_separator_equals_bookend";
         case parse_error_kind::formatter_invalid_char:             return "formatter_invalid_char";
-        case parse_error_kind::hierarchy_empty_segment:            return "hierarchy_empty_segment";
+        case parse_error_kind::empty_level:            return "empty_level";
         case parse_error_kind::invalid_utf8:                       return "invalid_utf8";
         case parse_error_kind::formatter_reserved:                 return "formatter_reserved";
         case parse_error_kind::multiline_opener_text:              return "multiline_opener_text";
@@ -436,7 +436,7 @@ auto parse_line(std::string_view raw, split_rule rule)
         out.kind      = line_kind::data;
         out.number    = number;
         out.fmt       = fmt;
-        out.hierarchy = {std::string{sv}};
+        out.values = {std::string{sv}};
         return out;
     }
 
@@ -444,7 +444,12 @@ auto parse_line(std::string_view raw, split_rule rule)
     const auto data_region_col = col;
     const std::string bookend_text = encode_utf8(fmt.bookend);
     const std::string separator_text = encode_utf8(fmt.separator);
-    const auto marker_pos = find_comment_marker(sv, bookend_text);
+    // The comment character as the first character of the data, followed by a space or
+    // the end of the line, also opens a comment: nothing stands before it, so the value
+    // is empty, and the rest is the comment ("?# # # Note" has the comment "# Note").
+    const bool leading_comment = sv.starts_with(bookend_text) &&
+        (sv.size() == bookend_text.size() || sv[bookend_text.size()] == ' ');
+    const auto marker_pos = leading_comment ? std::size_t{0} : find_comment_marker(sv, bookend_text);
 
     std::string_view data_part;
     std::string_view comment_part;
@@ -462,14 +467,14 @@ auto parse_line(std::string_view raw, split_rule rule)
 
     // 9. Split data on the separator (if present).
     parsed_line out;
-    if (rule == split_rule::fields) {
-        out.hierarchy = split_fields(data_part, separator_text);
+    if (rule == split_rule::multifield) {
+        out.values = split_multifield(data_part, separator_text);
     } else {
-        auto hier_or_err = split_hierarchy(data_part, separator_text, data_region_col);
+        auto hier_or_err = split_levels(data_part, separator_text, data_region_col);
         if (!hier_or_err) {
             return std::unexpected{std::move(hier_or_err.error())};
         }
-        out.hierarchy = std::move(*hier_or_err);
+        out.values = std::move(*hier_or_err);
     }
     out.kind      = line_kind::data;
     out.number    = number;

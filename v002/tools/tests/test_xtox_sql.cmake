@@ -22,12 +22,13 @@ if(NOT EXISTS "${out}")
 endif()
 
 file(READ "${out}" sql)
-# Two valid records -> two INSERTs with the substituted values.
-if(NOT sql MATCHES "INSERT INTO sample .* VALUES .1, 'Stanley Hammer 16oz', 'Hand Tools'.")
+# Two valid records -> two INSERTs with the substituted values. {NULL} is the one
+# value that becomes SQL NULL; an empty value is '' (SPEC 2.6.1).
+if(NOT sql MATCHES "INSERT INTO sample .* VALUES .1, 'Stanley Hammer 16oz', 'Hand Tools', '2019-04-12', NULL.")
     message(FATAL_ERROR "expected substituted INSERT for record 1 not found; got:\n${sql}")
 endif()
-if(NOT sql MATCHES "INSERT INTO sample .* VALUES .2, 'DeWalt Drill DCD777', 'Power Tools'.")
+if(NOT sql MATCHES "INSERT INTO sample .* VALUES .2, 'DeWalt Drill DCD777', 'Power Tools', '1900-01-01', ''.")
     message(FATAL_ERROR "expected substituted INSERT for record 2 not found; got:\n${sql}")
 endif()
 
-message(STATUS "jtext_xtox_sql OK: emitted both INSERTs with correct {N} substitution")
+message(STATUS "jtext_xtox_sql OK: both INSERTs, {NULL} as NULL and empty as ''")
