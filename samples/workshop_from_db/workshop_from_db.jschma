@@ -1,8 +1,8 @@
-//File:    workshop_from_db.jschma
-//Date:    2026-10-29
-//Purpose: SQL Schema File
-//Related: type=PostgreSQL table=workshop_tools
-//
+-- File:    workshop_from_db.jschma
+-- Date:    2026-10-29
+-- Purpose: SQL Schema File
+-- Related: type=PostgreSQL table=workshop_tools
+--
 CREATE TABLE IF NOT EXISTS workshop_tools (
     id INTEGER NOT NULL,
     name TEXT NOT NULL,

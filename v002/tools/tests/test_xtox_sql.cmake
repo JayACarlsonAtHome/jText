@@ -31,4 +31,12 @@ if(NOT sql MATCHES "INSERT INTO sample .* VALUES .2, 'DeWalt Drill DCD777', 'Pow
     message(FATAL_ERROR "expected substituted INSERT for record 2 not found; got:\n${sql}")
 endif()
 
-message(STATUS "jtext_xtox_sql OK: both INSERTs, {NULL} as NULL and empty as ''")
+# The header block is SQL comments, so the file runs as written (SPEC 2.1).
+if(NOT sql MATCHES "^-- File:    sample.sql\n-- Date:    [0-9-]+\n-- Purpose: SQL Data File\n")
+    message(FATAL_ERROR "the .sql header should be -- comments; got:\n${sql}")
+endif()
+if(sql MATCHES "(^|\n)//")
+    message(FATAL_ERROR "a .sql file must not contain // lines; got:\n${sql}")
+endif()
+
+message(STATUS "jtext_xtox_sql OK: both INSERTs, {NULL} as NULL and empty as '', -- header")

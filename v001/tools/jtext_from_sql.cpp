@@ -35,6 +35,7 @@
 #include <format>
 #include <optional>
 
+#include <jText/v001.hpp>       // the // and -- header blocks
 #include "parser/section.hpp"   // jtext::kFormatVersion
 
 #include <unistd.h>      // pipe, fork, dup2, read, execvp, _exit
@@ -134,25 +135,6 @@ static std::string map_pg_type_to_jtext(const std::string& pg) {
     if (t.find("date") != std::string::npos ||
         t.find("time") != std::string::npos) return "Date";
     return "String";
-}
-
-static std::string make_header(const std::string& filename,
-                                  std::string_view purpose,
-                                  std::string_view related = {}) {
-    auto now = std::chrono::system_clock::now();
-    auto today = std::chrono::floor<std::chrono::days>(now);
-    std::string date_str = std::format("{:%Y-%m-%d}", today);
-
-    std::string h = std::format(
-        "//File:    {}\n"
-        "//Date:    {}\n"
-        "//Purpose: {}\n",
-        filename, date_str, purpose);
-    if (!related.empty()) {
-        h += std::format("//Related: {}\n", related);
-    }
-    h += "//\n";
-    return h;
 }
 
 int main(int argc, char** argv) {
@@ -266,7 +248,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jschma");
         std::ofstream out(f);
-        out << make_header(base + ".jschma", "SQL Schema File", related);
+        jText::v001::write_sql_comment_header(out, base + ".jschma", "SQL Schema File", related);
         out << "CREATE TABLE IF NOT EXISTS " << table_name << " (\n";
         for (size_t i = 0; i < columns.size(); ++i) {
             const auto& c = columns[i];
@@ -294,7 +276,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtFlds");
         std::ofstream out(f);
-        out << make_header(base + ".jtFlds", "jText Field List File", related);
+        jText::v001::write_file_comment_header(out, base + ".jtFlds", "jText Field List File", related);
         out << "=== Fields ===\n";
         for (size_t i = 0; i < columns.size(); ++i) {
             const auto& c = columns[i];
@@ -310,7 +292,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtinsrt");
         std::ofstream out(f);
-        out << make_header(base + ".jtinsrt", "jText Data File", related);
+        jText::v001::write_file_comment_header(out, base + ".jtinsrt", "jText Data File", related);
         // The body is a multiline value (SPEC 5): a bare "[*", "** " lines, "*]".
         out << "=== Template: SQL Insert ===\n";
         out << "[*\n";
@@ -335,7 +317,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtext");
         std::ofstream out(f);
-        out << make_header(base + ".jtext", "jText Data File", related);
+        jText::v001::write_file_comment_header(out, base + ".jtext", "jText Data File", related);
         out << "=== jText File ===\n";
         out << " 1. ?# " << base << ".jtext\n";
         out << " 2. ?# " << date_str << "\n";

@@ -26,6 +26,7 @@
 // then emits the templates with basic substitution
 // and writes the result to <output_file>.
 
+#include <jText/v001.hpp>
 #include "parser/section.hpp"
 #include "validator/validator.hpp"
 
@@ -33,6 +34,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <sstream>
 #include <string_view>
 #include <vector>
 #include <chrono>
@@ -207,23 +209,17 @@ int main(int argc, char** argv)
     }
 
     // Emit one INSERT per record using the template
-    std::string output_sql;
-    auto now = std::chrono::system_clock::now();
-    auto today = std::chrono::floor<std::chrono::days>(now);
-    std::string date_str = std::format("{:%Y-%m-%d}", today);
-    output_sql += "//File:    " + std::string(base) + ".sql\n";
-    output_sql += "//Date:    " + date_str + "\n";
-    output_sql += "//Purpose: SQL Data File\n";
+    // The header block as SQL comments, so the file runs as written (SPEC 2.1).
     // If the source jText carried table_name, emit the compact Related form.
     std::string rel_table = base;
     auto it = result.file.header.find("table_name");
     if (it != result.file.header.end() && !it->second.empty()) {
         rel_table = it->second;
     }
-    if (!rel_table.empty()) {
-        output_sql += "//Related: type=jText table=" + rel_table + "\n";
-    }
-    output_sql += "//\n";
+    std::ostringstream header;
+    jText::v001::write_sql_comment_header(header, out_path.string(), "SQL Data File",
+                                          rel_table.empty() ? "" : "type=jText table=" + rel_table);
+    std::string output_sql = header.str();
     output_sql += "-- Generated from " + std::string(base) + ".jtFull\n";
     output_sql += "-- by jtext_xtox_sql\n";
     output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n\n";

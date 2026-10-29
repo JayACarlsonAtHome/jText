@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.017"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.018"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -295,13 +295,14 @@ void write_light_section_banner(std::ostream& out, std::string_view section_name
 void write_fields_include_line(std::ostream& out, std::string_view jtflds_path);
 
 // Writes the required standardized leading // comment header for
-// self-describing files (jText data, jText field lists, SQL schemas, binary data, etc).
-// Always uses // comments. Call this before writing any data or jText's own # headers.
+// self-describing files (jText data, jText field lists, binary data, etc). A file of
+// SQL (.sql, .jschma) takes write_sql_comment_header instead, the same block as "-- "
+// comments. Call this before writing any data or jText's own # headers.
 // The produced block is (keys chosen for brevity + colons for consistency; values aligned):
 //
 //   //File:    <the file's name: never a path, which goes stale when the file moves>
 //   //Date:    YYYY-MM-DD
-//   //Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
+//   //Purpose: jText Data File | jText Field List File | ...
 //   //Related: type=PostgreSQL table=workshop_tools   (optional, if origin known)
 //
 // The leading // lines are comments and are skipped by parsers when looking for
@@ -315,3 +316,15 @@ void write_file_comment_header(std::ostream& os,
                                std::string_view path,
                                std::string_view purpose,
                                std::string_view related = {});
+
+// The same block for a file of SQL (.sql, .jschma), as SQL comments, so psql, sqlite3
+// and mysql can run the file as written (MySQL and MariaDB need the space after "--"):
+//   -- File:    <the file's name>
+//   -- Date:    YYYY-MM-DD
+//   -- Purpose: <purpose>
+//   -- Related: <related>        (only when given)
+//   --
+void write_sql_comment_header(std::ostream& os,
+                              std::string_view path,
+                              std::string_view purpose,
+                              std::string_view related = {});

@@ -345,22 +345,40 @@ auto JTextFile::validate() const -> std::expected<void, std::string> {
 // JTextWriter implementation
 // ===================================================================
 
-void write_file_comment_header(std::ostream& os,
-                                   std::string_view path,
-                                   std::string_view purpose,
-                                   std::string_view related) {
+namespace {
+
+// The header block, each line opened by `lead` ("//" or "-- ").
+void write_comment_header(std::ostream& os, std::string_view lead, std::string_view path,
+                          std::string_view purpose, std::string_view related)
+{
     auto now = std::chrono::system_clock::now();
     auto today = std::chrono::floor<std::chrono::days>(now);
     std::string date_str = std::format("{:%Y-%m-%d}", today);
 
     // The file's name only: a path would go stale when the file or its project moves.
-    os << "//File:    " << std::filesystem::path(std::string(path)).filename().string() << "\n";
-    os << "//Date:    " << date_str << "\n";
-    os << "//Purpose: " << purpose << "\n";
+    os << lead << "File:    " << std::filesystem::path(std::string(path)).filename().string() << "\n";
+    os << lead << "Date:    " << date_str << "\n";
+    os << lead << "Purpose: " << purpose << "\n";
     if (!related.empty()) {
-        os << "//Related: " << related << "\n";
+        os << lead << "Related: " << related << "\n";
     }
-    os << "//\n";
+    os << lead.substr(0, 2) << "\n";
+}
+
+} // namespace
+
+void write_sql_comment_header(std::ostream& os,
+                              std::string_view path,
+                              std::string_view purpose,
+                              std::string_view related) {
+    write_comment_header(os, "-- ", path, purpose, related);
+}
+
+void write_file_comment_header(std::ostream& os,
+                                   std::string_view path,
+                                   std::string_view purpose,
+                                   std::string_view related) {
+    write_comment_header(os, "//", path, purpose, related);
     // End-of-text-header marker for consumers (e.g. binary log readers doing
     // safe prefix scan). Binary readers must *not* rely on getline after this.
     // See BinaryEventLogReader for the matching bounded rfind-based skip.

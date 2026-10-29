@@ -155,17 +155,27 @@ A file cut off mid-write, or written before closers were required, is closed by 
 
 ### 2.1 Filesystem Wrapper (`//` headers)
 
-**Written for all profiles and all companion files.** All `.jtext`, `.jtFlds`, `.jtinsrt`, `.jschma`, and generated `.sql` sidecars begin with these lines (before any `#` metadata or `===` content). Writers always emit the first three lines and the closing `//`; `//Related:` is **optional but strongly encouraged** when origin is known. Readers skip the block and do not require it:
+**Written for all profiles and all companion files.** All `.jtext`, `.jtFlds` and `.jtinsrt` files begin with these lines (before any `#` metadata or `===` content). Writers always emit the first three lines and the closing `//`; `//Related:` is **optional but strongly encouraged** when origin is known. Readers skip the block and do not require it:
 
 ```
 //File:    <the file's name>
 //Date:    YYYY-MM-DD
-//Purpose: jText Data File | jText Field List File | SQL Schema File | SQL Data File | ...
+//Purpose: jText Data File | jText Field List File | ...
 //Related: type=PostgreSQL table=workshop_tools   (optional)
 //
 ```
 
-`//File:` holds the file's name only, never a path: files and the projects that hold them move (a portable drive mounts at a different place on each OS), and a recorded path would go stale.
+Files of SQL (`.jschma` schemas and generated `.sql` sidecars) carry the same block as SQL comments, so `psql`, `sqlite3` and `mysql` run them as written. MySQL and MariaDB need the space after `--`:
+
+```
+-- File:    <the file's name>
+-- Date:    YYYY-MM-DD
+-- Purpose: SQL Schema File | SQL Data File
+-- Related: type=PostgreSQL table=workshop_tools   (optional)
+--
+```
+
+`//File:` (`-- File:`) holds the file's name only, never a path: files and the projects that hold them move (a portable drive mounts at a different place on each OS), and a recorded path would go stale.
 
 The compact `//Related: type=... db=... table=...` form (user-specified convention) is a single line, easy to grep (`^//Related`), extensible with more keys, and replaces the older ad-hoc "Related Database --" / "Related Table --" style with something clean and consistent.
 
@@ -604,6 +614,19 @@ Anywhere else, the comment character **without** a space on each side is data. I
 
 The formatter's own characters are not data. The `#` in `|#` does not warn and does not open a comment, because it is not surrounded by spaces.
 
+#### 3.2.1 Comments Are Data
+
+Comments carry context the author wants passed on with the data, so readers keep them, every export carries them, and a round trip that loses one has lost data.
+
+**A comment belongs to the line it is on.** That is the one rule:
+
+- A comment written on a line, after its data (or as the first character of its data, above), belongs to that line. On a compact row it belongs to the row, not to one of its fields.
+- A line that holds only a comment, starting with `#` or `//`, is a **comment line**: a line of its own. It stays where it stands, between the lines around it, and belongs to nothing else. Its text is the line without its leading `#` or `//` and the spaces after it.
+
+Where a store keeps records and values but not the layout of lines (a database, an XML export), a line is named by its **record and the field it starts at**: lines of a record never overlap, so that pair is one line. A comment line is named by the line it stands before, or as standing at the end of its block.
+
+Not comments: the `//` block at the top of a file (Section 2.1, which writers regenerate), the light profile's `#` header lines (Section 2.3) and its `# Fields:` includes, and a template's body (Section 5).
+
 ### 3.3 Splitting: Field Values and Levels
 
 The data is everything between the formatter and the comment marker (or the end of the line, if no comment is present), with surrounding whitespace removed. If the data does not contain the splicing character, it is **one value**. A splicing character that does not appear in the data is legal (Section 3.5).
@@ -800,6 +823,22 @@ jtext emit items.jText     --templates "Create Table" "SQL Insert" | psql mydb
 The same templates that produced INSERT statements can be inverted for the round-trip: an `export` tool reading from the database can produce jText files using the schema and types declared in the original. This makes jText a viable **on-ramp and off-ramp** to a database, rather than a destination format that locks data in.
 
 (The specific command shown is illustrative; the spec does not prescribe tool names or command-line syntax.)
+
+**Comments in a database.** A table column holds values, so comments (Section 3.2.1) are stored beside the data, in a linked table named after the data table with `_comments` added. It holds no nulls:
+
+```sql
+CREATE TABLE workshop_tools_comments (
+    block     TEXT    NOT NULL,   -- 'fields' or 'data'
+    kind      TEXT    NOT NULL,   -- 'line' (the comment on a line) or 'comment-line'
+    record_id INTEGER NOT NULL,   -- data block: field 1 of the record; fields block: 0
+    position  INTEGER NOT NULL,   -- the field the line starts at; for a comment line, that of
+                                  -- the line it stands before; 0: at the end of the block
+    seq       INTEGER NOT NULL,   -- comment lines standing together: 1, 2, 3 ... in order
+    comment   TEXT    NOT NULL
+);
+```
+
+A line is named by its record and the field it starts at (Section 3.2.1), so every comment goes back on its own line, and every comment line back where it stood. Tools that write a section to a database write its comments there, and tools that read a table back put each one in its place. A record's comments are found by its record id, which is one more reason to keep field 1 unique (Section 2.4.3).
 
 Values are stored as entered. A `'` in a field stays a `'`. A live insert or update binds that value with a prepared parameter. When a consumer writes SQL text, as the SQL Insert template does, each `'` in the raw value is doubled once, so `'` becomes `''` inside the SQL quotes. The jText file is not rewritten. Stored values are not passed through a loop that collapses `''` to `'`. A host other than that SQL text, such as VBA, receives the raw value and does its own quoting.
 
@@ -1168,7 +1207,8 @@ All other open questions from earlier drafts have been resolved.
 - Section 2.6: a line for field 1 starts a new record (field 1 is the record id). Whole-record multifield rows follow one another without blank lines; vertical records end with a blank line.
 - Section 2.3: `jtext_version` is written by every writer; readers warn on a missing, older, newer or invalid version and read on; saving upgrades it. The light profile writes `# jText Version:`.
 - Section 2.0: removed banner-less data rows and the light profile's undefined inline field block; a file is one profile or the other.
-- Section 2.1: `//File:` holds the file's name only.
+- Section 3.2.1: comments are data, and a comment belongs to the line it is on; a whole comment line is a line of its own and stays where it stands. Readers keep them and every export carries them. Section 4.3: in a database they live in a linked `<table>_comments` table.
+- Section 2.1: `//File:` holds the file's name only. `.sql` and `.jschma` files carry the block as `-- ` SQL comments.
 - Section 3.7: why field positions stop at 99; writers pad to two columns in every section.
 
 **v0.7**
