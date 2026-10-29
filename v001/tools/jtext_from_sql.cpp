@@ -22,8 +22,9 @@
 // NULL date as the null date (SPEC 2.6.1). The comments come back from the table's
 // linked <table>_comments table (SPEC 4.3), each onto its own line.
 //
-// A database keeps no Not Empty, NullDate(...) or auto designation: those declarations
-// do not come back.
+// The field declarations come back from the linked <table>_fields table (SPEC 4.3), as
+// written, Not Empty, NullDate(...) and auto designations included; a table without one
+// gets declarations from its columns (name, type, length, Not Null).
 
 #include <jText/v001.hpp>          // JTextWriter, the // and -- header blocks
 #include "export/xml_export.hpp"   // jtext::located_comment
@@ -86,13 +87,41 @@ static jtext::located_comment comment_of(const Row& r)
 
 // ── jText out ─────────────────────────────────────────────────
 
-// A declaration's levels: name/Type[/length]/Not Null|Nullable.
+// A declaration's levels from a column: name/Type[/length]/Not Null|Nullable.
 static std::vector<std::string> declaration(const Column& c)
 {
     std::vector<std::string> d{c.name, c.type};
     if (c.length > 0) d.push_back(std::to_string(c.length));
     d.emplace_back(c.not_null ? "Not Null" : "Nullable");
     return d;
+}
+
+static bool same_name(std::string_view a, std::string_view b)
+{
+    return std::ranges::equal(a, b, [](unsigned char x, unsigned char y) { return std::tolower(x) == std::tolower(y); });
+}
+
+// Each column's declaration: as stored in <table>_fields when that names the same field
+// at its position (a database may fold a name's case), else from the column.
+static std::vector<std::vector<std::string>> declarations(const std::vector<Column>& cols,
+                                                          const std::map<unsigned, std::vector<std::string>>& stored)
+{
+    std::vector<std::vector<std::string>> out;
+    for (std::size_t i = 0; i < cols.size(); ++i) {
+        const auto it = stored.find(static_cast<unsigned>(i + 1));
+        const bool use = it != stored.end() && !it->second.empty() && same_name(it->second[0], cols[i].name);
+        out.push_back(use ? it->second : declaration(cols[i]));
+    }
+    return out;
+}
+
+// A Date/DateTime field's null date (SPEC 2.6.1): its NullDate(...), else the default.
+static std::string null_date_of(const std::vector<std::string>& decl)
+{
+    for (const auto& level : decl)
+        if (level.starts_with("NullDate(") && level.ends_with(")"))
+            return level.substr(9, level.size() - 10);
+    return std::string{jtext::kDefaultNullDate};
 }
 
 static std::string sql_type(const Column& c)
@@ -107,8 +136,8 @@ static std::string sql_type(const Column& c)
 
 static void write_table(std::ostream& out, const std::string& base, const std::string& table,
                         const std::string& dialect, const std::string& related,
-                        const std::vector<Column>& cols, std::vector<Row> rows,
-                        const std::vector<jtext::located_comment>& comments)
+                        const std::vector<Column>& cols, const std::vector<std::vector<std::string>>& decls,
+                        std::vector<Row> rows, const std::vector<jtext::located_comment>& comments)
 {
     const auto grouped = jtools::group_comments(comments);
 
@@ -123,7 +152,7 @@ static void write_table(std::ostream& out, const std::string& base, const std::s
     w.begin_section(table);
 
     std::vector<jtools::Declaration> fields;
-    for (const auto& c : cols) fields.push_back({declaration(c), {}});
+    for (const auto& d : decls) fields.push_back({d, {}});
     for (const auto& [p, text] : grouped.fields.line)
         if (p >= 1 && p <= fields.size()) fields[p - 1].comment = text;
     jtools::write_fields(w, fields, grouped.fields);
@@ -131,12 +160,13 @@ static void write_table(std::ostream& out, const std::string& base, const std::s
     w.begin_data();
     static const jtools::LineComments kNone;
     for (auto& row : rows) {
-        // A date field always holds a date (SPEC 2.6.1).
+        // A date field always holds a date: its null date (SPEC 2.6.1).
         for (std::size_t i = 0; i < cols.size() && i < row.size(); ++i) {
             if ((cols[i].type == "Date" || cols[i].type == "DateTime") &&
-                (row[i].empty() || row[i] == jtext::kNullValue))
-                row[i] = cols[i].type == "Date" ? std::string{jtext::kDefaultNullDate}
-                                                : std::format("{} 00:00:00", jtext::kDefaultNullDate);
+                (row[i].empty() || row[i] == jtext::kNullValue)) {
+                const std::string d = null_date_of(decls[i]);
+                row[i] = cols[i].type == "Date" || d.size() > 10 ? d : std::format("{} 00:00:00", d);
+            }
         }
         const auto it = grouped.records.find(jtools::record_id(row));
         jtools::write_record(w, row, it == grouped.records.end() ? kNone : it->second);
@@ -243,6 +273,22 @@ int main(int argc, char** argv) {
         for (const auto& r : *c) comments.push_back(comment_of(r));
     }
 
+    // The declarations, as written, from <table>_fields (SPEC 4.3), when the table has one.
+    std::map<unsigned, std::vector<std::string>> stored;
+    const std::string fields_table = table_name + "_fields";
+    const auto has_fields = db->has_table(fields_table);
+    if (!has_fields) return failed("looking for the declarations table");
+    if (*has_fields) {
+        const auto d = db->declaration_rows(fields_table);
+        if (!d) return failed("reading the declarations");
+        for (const auto& r : *d) {
+            unsigned position = 0;
+            std::from_chars(r[0].data(), r[0].data() + r[0].size(), position);
+            stored[position].push_back(r[2]);   // rows come by position, then level
+        }
+    }
+    const auto decls = declarations(*columns, stored);
+
     const std::string related = std::format("type={} table={}", db->dialect(), table_name);
     fs::path out_dir = data_dir / base;
     fs::create_directories(out_dir);
@@ -269,7 +315,7 @@ int main(int argc, char** argv) {
         jText::v001::write_file_comment_header(out, base + ".jtFlds", "jText Field List File", related);
         out << "=== Fields ===\n";
         for (size_t i = 0; i < columns->size(); ++i) {
-            const auto d = declaration((*columns)[i]);
+            const auto& d = decls[i];
             std::string levels;
             for (std::size_t k = 0; k < d.size(); ++k) levels += (k ? "/" : "") + d[k];
             out << std::format("{:>2}. /# {}\n", i + 1, levels);
@@ -300,7 +346,7 @@ int main(int argc, char** argv) {
     {
         fs::path f = out_dir / (base + ".jtext");
         std::ofstream out(f);
-        write_table(out, base, table_name, db->dialect(), related, *columns, *rows, comments);
+        write_table(out, base, table_name, db->dialect(), related, *columns, decls, *rows, comments);
         std::cout << "Wrote " << f << " (" << rows->size() << " rows, " << comments.size() << " comments)\n";
     }
     return 0;

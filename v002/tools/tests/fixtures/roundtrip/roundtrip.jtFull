@@ -25,17 +25,17 @@
 *]
 === Fields ===
 // the record id comes first
- 1. /# id/Integer/Not Null                  # record id
- 2. /# name/String/40/Not Null              # what it is
+ 1. /# id/Identity/Not Null                 # record id
+ 2. /# name/String/40/Not Null/Not Empty    # what it is
  3. /# category/String/100/Nullable         # a path, one value
- 4. /# acquired/Date/Nullable               # 1900-01-01 when unknown
+ 4. /# acquired/Date/Nullable/NullDate(1999-12-31)   # 1999-12-31 when unknown
  5. /# notes/String/Nullable
 // fields end here
 === End Fields ===
 === Data ===
 # hand tools first
  1. ▮▌ 1▮O'Brien's hammer▮Hand Tools/Hammers/Claw▮2019-04-12▮pipe | and hash # kept ▌ claw hammer
- 1. ▮▌ 2▮Drill bits in C:\bits\new▮Power Tools/Drills▮1900-01-01▮{NULL} ▌ date unknown
+ 1. ▮▌ 2▮Drill bits in C:\bits\new▮Power Tools/Drills▮1999-12-31▮{NULL} ▌ date unknown
  1. ?# 3
  2. ?# Bar ▮ clamp
 // the category and date are on their own lines
@@ -47,7 +47,7 @@
     ** last line
     *]
 
- 1. |# 4|Tape measure||1900-01-01|
+ 1. |# 4|Tape measure||1999-12-31|
 # more to add
 === End Data ===
 === End Section ===

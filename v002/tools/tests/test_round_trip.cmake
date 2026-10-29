@@ -2,7 +2,8 @@
 # (XML_EXPORT.md): the fixture goes to SQL (jtext_xtox_sql), into the database, back
 # to jText (jtext_from_sql, through the client library), and both the original and the
 # copy are exported in data scope. The two XML files must be byte-identical: every
-# value, type, length, constraint and comment survived.
+# value, type, length, constraint (Not Empty, NullDate, an auto designation: <table>_fields)
+# and comment survived.
 #
 # Invoked via: cmake -DDB=sqlite|postgres|mariadb -DCLIENT=<sqlite3|psql|mariadb>
 #                    -DXTOX=<exe> -DFROMSQL=<exe> -DTOXML=<exe>

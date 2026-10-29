@@ -44,6 +44,11 @@ public:
         return rows_of(std::format("SELECT {} FROM \"{}\" ORDER BY 1, 3, 4, 5", kCommentColumns, table));
     }
 
+    std::optional<std::vector<Row>> declaration_rows(const std::string& table) override
+    {
+        return rows_of(std::format("SELECT {} FROM \"{}\" ORDER BY 1, 2", kDeclarationColumns, table));
+    }
+
     std::optional<Qlite::v001::Sqlite> db;
 
 private:

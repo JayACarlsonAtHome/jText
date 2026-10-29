@@ -842,7 +842,17 @@ A line is named by its record and the field it starts at (Section 3.2.1), so eve
 
 SQL text written for a database uses standard string literals: a `'` is doubled, and a backslash is an ordinary character. PostgreSQL and SQLite read them that way; MariaDB and MySQL do only in the `NO_BACKSLASH_ESCAPES` SQL mode, so such a file is loaded there with that mode set (for example `mariadb --init-command="SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES')"`).
 
-A table keeps names, types, lengths and `NOT NULL`, but not every jText declaration: `Not Empty`, a `NullDate(...)` other than the default, and auto designations do not survive a database round trip. Everything else does, values and comments included; the reference tools test that through the canonical XML export (`XML_EXPORT.md`).
+**Declarations in a database.** A table's columns keep names, types, lengths and `NOT NULL`, but not every jText declaration (`Not Empty`, a `NullDate(...)`, an auto designation). So each field's declaration is stored as written, part by part, in a second linked table named after the data table with `_fields` added. It holds no nulls:
+
+```sql
+CREATE TABLE workshop_tools_fields (
+    position  INTEGER NOT NULL,   -- the field (1, 2, ...)
+    level     INTEGER NOT NULL,   -- the declaration's parts in order: 1 the name, 2 the type, ...
+    text      TEXT    NOT NULL    -- e.g. 'name', 'String', '40', 'Not Null', 'Not Empty'
+);
+```
+
+Tools that write a section to a database write its declarations there; tools that read a table back use a stored declaration when it names the same field at that position (a database may fold the name's case), and otherwise build one from the column. With both linked tables, everything survives a database round trip, values, declarations and comments; the reference tools test that through the canonical XML export (`XML_EXPORT.md`).
 
 Values are stored as entered. A `'` in a field stays a `'`. A live insert or update binds that value with a prepared parameter. When a consumer writes SQL text, as the SQL Insert template does, each `'` in the raw value is doubled once, so `'` becomes `''` inside the SQL quotes. The jText file is not rewritten. Stored values are not passed through a loop that collapses `''` to `'`. A host other than that SQL text, such as VBA, receives the raw value and does its own quoting.
 
@@ -1209,6 +1219,7 @@ All other open questions from earlier drafts have been resolved.
 - Section 2.3: `jtext_version` is written by every writer; readers warn on a missing, older, newer or invalid version and read on; saving upgrades it. The light profile writes `# jText Version:`.
 - Section 2.0: removed banner-less data rows and the light profile's undefined inline field block; a file is one profile or the other.
 - Section 3.2.1: comments are data, and a comment belongs to the line it is on; a whole comment line is a line of its own and stays where it stands. Readers keep them and every export carries them. Section 4.3: in a database they live in a linked `<table>_comments` table.
+- Section 4.3: field declarations live in a linked `<table>_fields` table, part by part, so `Not Empty`, `NullDate(...)` and auto designations survive a database round trip.
 - Section 2.1: `//File:` holds the file's name only. `.sql` and `.jschma` files carry the block as `-- ` SQL comments.
 - Section 3.7: why field positions stop at 99; writers pad to two columns in every section.
 

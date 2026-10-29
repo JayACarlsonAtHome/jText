@@ -57,6 +57,9 @@ using Row = std::vector<std::string>;
 // The comments table's columns (SPEC 4.3), in the order callers read them.
 inline constexpr const char* kCommentColumns = "block, kind, record_id, position, seq, comment";
 
+// The declarations table's columns (SPEC 4.3): each field's declaration, part by part.
+inline constexpr const char* kDeclarationColumns = "position, level, text";
+
 struct Source {
     virtual ~Source() = default;
     virtual std::string dialect() const = 0;
@@ -65,6 +68,7 @@ struct Source {
     virtual std::optional<std::vector<Row>> rows(const std::string& table) = 0;   // ordered by field 1
     virtual std::optional<bool> has_table(const std::string& table) = 0;
     virtual std::optional<std::vector<Row>> comment_rows(const std::string& table) = 0;
+    virtual std::optional<std::vector<Row>> declaration_rows(const std::string& table) = 0;   // by position, level
     std::string error;   // why the last call returned nothing
 };
 
@@ -80,7 +84,7 @@ std::optional<std::vector<Row>> rows_of(Db& db, std::string& error, const std::s
         while (st.step()) {
             Row row;
             for (int c = 0; c < st.column_count(); ++c) {
-                auto v = st.template get_by_name<std::optional<std::string>>(st.column_name(c));
+                auto v = st.template get_at<std::optional<std::string>>(c);
                 row.push_back(v ? std::move(*v) : std::string{jtext::kNullValue});
             }
             out.push_back(std::move(row));

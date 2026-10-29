@@ -246,13 +246,18 @@ int main(int argc, char** argv)
         output_sql += std::format("\n-- Section: {}\n", sec.name);
         if (const std::string* create = find("Create Table")) output_sql += *create + "\n";
         output_sql += std::format(
-            "CREATE TABLE IF NOT EXISTS {}_comments (\n"
+            "CREATE TABLE IF NOT EXISTS {0}_comments (\n"
             "    block     TEXT    NOT NULL,\n"
             "    kind      TEXT    NOT NULL,\n"
             "    record_id INTEGER NOT NULL,\n"
             "    position  INTEGER NOT NULL,\n"
             "    seq       INTEGER NOT NULL,\n"
             "    comment   TEXT    NOT NULL\n"
+            ");\n"
+            "CREATE TABLE IF NOT EXISTS {0}_fields (\n"
+            "    position  INTEGER NOT NULL,\n"
+            "    level     INTEGER NOT NULL,\n"
+            "    text      TEXT    NOT NULL\n"
             ");\n", table);
 
         for (const auto& rec : sec.records) {
@@ -261,6 +266,12 @@ int main(int argc, char** argv)
             output_sql += "\n" + substitute_record(*insert, rec, sec.fields);
             ++inserts;
         }
+        // Each field's declaration, part by part, as written (SPEC 4.3): what the table's
+        // own columns cannot hold (Not Empty, NullDate(...), an auto designation) comes back.
+        for (const auto& fl : pf_or_err->sections[s].field_lines)
+            for (std::size_t level = 0; level < fl.values.size(); ++level)
+                output_sql += std::format("\nINSERT INTO {}_fields (position, level, text) VALUES ({}, {}, {});",
+                                          table, fl.number, level + 1, sql_string_literal(fl.values[level]));
         for (const auto& c : jtext::section_comments(pf_or_err->sections[s])) {
             output_sql += std::format(
                 "\nINSERT INTO {}_comments (block, kind, record_id, position, seq, comment) "
