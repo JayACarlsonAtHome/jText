@@ -12,7 +12,7 @@
 | A | Unicode formatter characters; standard formatter `▮▌` | implemented |
 | B | Every block closes, like XML | implemented, plus `jtext_close` |
 | C | Multiline values: `[*` … `**` … `*]` | implemented |
-| D | Removed: banner-less rows, special blocks, `<<<` sentinel blocks | implemented; `jtext_close` rewrites `<<<` blocks |
+| D | Removed: banner-less rows, special blocks, `<<<` sentinel blocks, the light profile's undefined inline field block | implemented; `jtext_close` rewrites `<<<` blocks |
 | E | Writers emit the two-character formatter | implemented |
 | F | Why field positions stop at 99 (rationale only) | no code change |
 | G | `//File:` holds the file's name only | implemented |
@@ -252,6 +252,11 @@ the data. Writers also pad line numbers to two columns in every section (Section
    Replaced by Part C. *(Removed; the sample was converted by hand.)*
 3. **`<<< SENTINEL` blocks** (Section 5). Replaced by Part C; `jtext_close` rewrites
    existing ones, line for line (a template's opener becomes a bare `[*`). *(Removed.)*
+4. **"An inline field block" in the light profile** (Section 2.0.1). The SPEC named it
+   but never gave it a form, and no reader accepted one. A light-profile section names
+   its fields with `# Fields: <path>.jtFlds`; inline field definitions are the full
+   profile's `=== Fields ===` block. A file is one profile or the other, never a mix.
+   *(Removed from the text; nothing read it.)*
 
 ---
 

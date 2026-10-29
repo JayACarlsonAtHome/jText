@@ -102,7 +102,7 @@ Light-profile rules:
 - The `//` block is **required** on all `.jtext`, `.jtFlds`, `.jschma`, and `.sql` companions.
 - The `#` metadata block follows immediately after the closing `//` blank line.
 - Section banners use `-- name --` (not `=== Section: ===`).
-- Field schema is declared via `# Fields: <path>.jtFlds` or an inline field block; **not** repeated in row comments.
+- Field schema is declared via `# Fields: <path>.jtFlds` (inline field definitions are the full profile's `=== Fields ===` block, §2.0.2); **not** repeated in row comments.
 - Line-number padding (§3.7) applies when a section has more than 9 numbered lines.
 - `-- EOF --` is optional.
 
