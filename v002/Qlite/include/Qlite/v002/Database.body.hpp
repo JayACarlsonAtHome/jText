@@ -13,7 +13,7 @@
 
 // Package version, "major.minor": major = the v002 API line, minor = the revision.
 // Bump the minor on each small code change; a real (breaking) change moves the major.
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.010"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v002.011"; }
 
 // ---------------------------------------------------------------------------
 // Errors: each database throws its own type, all derived from Error.
@@ -26,7 +26,8 @@ public:
 // ---------------------------------------------------------------------------
 // The common surface. A statement from prepare() binds its values positionally
 // (bind(a, b, ...)), steps through its rows (step()) and reads the current row's
-// columns in order (get(x, y, ...)); a std::optional<T> reads or binds NULL.
+// columns in order (get(x, y, ...)), or one by its index (get_at<T>(i)); a std::optional<T>
+// reads or binds NULL.
 // ---------------------------------------------------------------------------
 template<class D>
 concept Database = requires(D& db, const std::string& sql) {
@@ -42,6 +43,7 @@ concept Database = requires(D& db, const std::string& sql) {
         { st.step() } -> std::same_as<bool>;
         st.reset();
         st.get(i, d, s, o);
+        { st.template get_at<std::optional<std::string>>(0) } -> std::same_as<std::optional<std::string>>;
         { st.column_count() } -> std::convertible_to<int>;
     };
 };

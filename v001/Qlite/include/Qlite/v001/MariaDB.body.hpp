@@ -204,6 +204,9 @@ public:
         }
         template<typename T>
         T get_by_name(std::string_view name) { return column_value<T>(column_index(name)); }
+        // Column `col` (0-based) of the current row, for a width known only at run time.
+        template<typename T>
+        T get_at(int col) { return column_value<T>(col); }
 
 #if defined(__cpp_lib_expected)
         // Non-throwing step: errors come back as std::unexpected(MariaDBError).

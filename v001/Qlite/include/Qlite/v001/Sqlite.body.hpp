@@ -301,6 +301,11 @@ public:
         T get_by_name(std::string_view name) {
             return column<T>(stmt_, column_index(name));
         }
+        // Column `col` (0-based) of the current row, for a width known only at run time.
+        template<typename T>
+        T get_at(int col) {
+            return column<T>(stmt_, col);
+        }
 
 #if defined(__cpp_lib_expected)
         // Non-throwing step: SQLITE errors come back as std::unexpected(SqliteError).
