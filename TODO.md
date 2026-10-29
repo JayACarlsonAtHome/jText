@@ -27,7 +27,6 @@ Every target reads and writes through a proper library or a fully defined format
 | PostgreSQL | done: `jtext_xtox_sql` / `jtext_from_sql`, round-trip tested |
 | MariaDB | done: `jtext_xtox_sql` / `jtext_from_sql --mariadb`, round-trip tested |
 | LibreOffice Calc (`.ods`) | done: `jtext_to_ods` / `jtext_from_ods` (`ODS.md`), round-trip tested directly and through LibreOffice; declarations a database loses survive here |
-| Excel (`.xlsx`) | the editor imports/exports it; no jText library tool yet |
 | XML | export done (`XML_EXPORT.md`, `jtext_to_xml`): the compare standard for every round trip; import later |
 | HTML | later (jac313's Store writes HTML event logs; jText itself has no HTML export) |
 | Text | later: the form (aligned columns, a report) is still to be defined |
