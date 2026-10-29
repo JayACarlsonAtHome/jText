@@ -116,7 +116,7 @@ public:
         Statement(Statement&& o) noexcept
             : db_(o.db_), stmt_(o.stmt_), names_(std::move(o.names_)), types_(std::move(o.types_)),
               unsigned_(std::move(o.unsigned_)), params_(std::move(o.params_)), executed_(o.executed_),
-              cells_(std::move(o.cells_)) {
+              on_row_(o.on_row_), cells_(std::move(o.cells_)) {
             o.stmt_ = nullptr;
         }
         Statement& operator=(Statement&& o) noexcept {
@@ -129,6 +129,7 @@ public:
                 unsigned_ = std::move(o.unsigned_);
                 params_ = std::move(o.params_);
                 executed_ = o.executed_;
+                on_row_ = o.on_row_;
                 cells_ = std::move(o.cells_);
                 o.stmt_ = nullptr;
             }
@@ -145,12 +146,14 @@ public:
 
         // Runs the statement on the first call, then walks its rows.
         bool step() {
+            on_row_ = false;
             if (!executed_) execute();
             if (names_.empty()) return false;
             const int rc = mysql_stmt_fetch(stmt_);
             if (rc == MYSQL_NO_DATA) return false;
             if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) throw_stmt("step failed");
             read_row();
+            on_row_ = true;
             return true;
         }
 
@@ -161,6 +164,7 @@ public:
                 mysql_stmt_reset(stmt_);
             }
             executed_ = false;
+            on_row_ = false;
         }
         void clear_bindings() { params_.clear(); }
 
@@ -328,6 +332,9 @@ public:
 
         template<typename T>
         T column_value(int col) {
+            // A current row (step() returned true): after the last row, cells_ still holds it.
+            QLITE_PRE(on_row_);
+            QLITE_PRE(col >= 0 && col < column_count());
             const auto& cell = cells_.at(static_cast<std::size_t>(col));
             if constexpr (std::is_same_v<T, std::vector<std::byte>>) {
                 return cell ? bytes(*cell) : T{};
@@ -350,6 +357,7 @@ public:
         std::vector<bool> unsigned_;
         std::vector<Param> params_;
         bool executed_ = false;
+        bool on_row_ = false;   // step() returned true and nothing has moved off that row
         std::vector<MYSQL_BIND> out_;
         std::vector<unsigned long> out_len_;
         std::vector<my_bool> out_null_;

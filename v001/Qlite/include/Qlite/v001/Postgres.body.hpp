@@ -215,6 +215,9 @@ public:
 
         template<typename T>
         T column_value(int col) {
+            // A current row (step() returned true) and a column of it; libpq would read as NULL.
+            QLITE_PRE(result_ && row_ >= 0 && row_ < PQntuples(result_.get()));
+            QLITE_PRE(col >= 0 && col < column_count());
             const PGresult* r = result_.get();
             const bool null = PQgetisnull(r, row_, col);
             if constexpr (std::is_same_v<T, std::vector<std::byte>>) {
