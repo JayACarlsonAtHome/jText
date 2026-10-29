@@ -9,12 +9,16 @@
 these libraries; it consumes them, it does not author them.
 
 ```
-   Qlite repo  (canonical)  ──forward-port──▶  jac313/vNNN/Qlite      (embedded snapshot)
-   jText repo  (canonical)  ──forward-port──▶  jac313/vNNN/jText      (embedded snapshot)
+   Qlite repo  (canonical)  ──forward-port──▶  jText/vNNN/Qlite        (jText brings in Qlite)
+   jText repo  (canonical)  ──forward-port──▶  jac313/vNNN/jText       (embedded snapshot,
+                                                                         Qlite inside it at
+                                                                         jac313/vNNN/jText/Qlite)
 ```
 
-Flow is **one-way only: canonical → jac313.** Never edit `jac313/vNNN/Qlite` or
-`jac313/vNNN/jText` in place, and never port a change back the other way.
+Flow is **one-way only: canonical → consumer.** Qlite stays independent of jText; jText
+brings Qlite in, and jac313 gets Qlite only through jText. Never edit `jText/vNNN/Qlite`,
+`jac313/vNNN/jText` or `jac313/vNNN/jText/Qlite` in place, and never port a change back
+the other way.
 
 ---
 
@@ -62,7 +66,7 @@ Bringing a library's changes into jac313 is a **copy + namespace transform**, pe
 |------------------------|-------------------|
 | `Qlite::v001` / `Qlite::v002` | `jac313::Qlite::v001` / `jac313::Qlite::v002` |
 | `jText::v001` / `jText::v002` | `jac313::jText::v001` / `jac313::jText::v002` |
-| module `Qlite.vNNN`, `jText.vNNN` | module `jac313.qlite.vNNN`, `jac313.jtext.vNNN` |
+| module `jText.vNNN` | module `jac313.jtext.vNNN` (Qlite's module is not vendored) |
 | `#include <Qlite/vNNN.hpp>`, `<jText/vNNN.hpp>` | `<jac313/Qlite/vNNN.hpp>`, `<jac313/jText/vNNN.hpp>` |
 
 The transform is a uniform **prepend `jac313::`** (and the matching module / include-path
@@ -70,7 +74,8 @@ rename). Standards are fixed per version on both sides: **v001 = C++23, v002 = C
 
 On each forward-port into jac313:
 1. Apply the namespace/module/include transform to the copied files:
-   `jac313_test_cli vendor-sync vNNN/<lib>/VENDORED.jtext --write` does it and records the port.
+   `jac313_test_cli vendor-sync vNNN/jText/VENDORED.jtext --write` does it and records the
+   port; the Qlite jText carries (its own `VENDORED.jtext`) is renamed with it.
 2. Bump the package `version()` literal (`vNNN.NNN`) in the same commit — the
    `jac313_test_cli version-check` gate enforces it.
 3. Keep the frozen consumer surface that Store depends on (the SQL sink for Qlite, the
@@ -80,7 +85,8 @@ On each forward-port into jac313:
 
 ## What this forbids
 
-- Editing `jac313/vNNN/Qlite/**` or `jac313/vNNN/jText/**` to add features or fix bugs.
+- Editing `jText/vNNN/Qlite/**`, `jac313/vNNN/jText/**` (Qlite included) to add features or
+  fix bugs.
 - "I'll fix it here for now and backport later" — later doesn't happen; do it in the
   canonical repo and forward-port.
 
