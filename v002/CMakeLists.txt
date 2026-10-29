@@ -83,6 +83,10 @@ endif()
 # Standalone-repo CLI tools (jtext_xtox_sql / jtext_from_sql). In the jac313
 # umbrella these live at v002/tools/ instead; here they ship with the library.
 # enable_testing() above also covers the tool tests registered in tools/.
+# Qlite (one SQL API over SQLite, PostgreSQL and MariaDB), brought in from its own
+# repository; the tools read databases through it.
+add_subdirectory(Qlite)
+
 add_subdirectory(tools)
 
 if(JTEXT_BUILD_MODULES AND JTEXT_BUILD_TESTS)

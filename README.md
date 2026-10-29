@@ -238,8 +238,13 @@ This is a workflow that current formats don't support well. CSV can't carry the 
 jText is currently in **specification development**. The format itself is stable enough to commit to (see `SPEC.md` for the formal rules), but the reference implementation is in progress. The repository contains:
 
 - `SPEC.md` — the formal format specification
+- `XML_EXPORT.md`, `ODS.md` — the canonical XML export and the OpenDocument spreadsheet layout
 - `README.md` — this document
-- Reference C++ implementation (in progress)
+- Reference C++ implementation (`v001` C++23, `v002` C++26), with tools to and from SQL
+  (SQLite, PostgreSQL, MariaDB), XML and `.ods`
+- `v00x/Qlite` — [Qlite](https://github.com/JayACarlsonAtHome/Qlite), one SQL API over SQLite,
+  PostgreSQL and MariaDB, brought in from its own repository (see its `VENDORED.jtext`); the
+  database tools read through it
 
 If you're interested in the format itself — to implement a parser, write a tool, or just give feedback — the spec is the authoritative document. If you want to use jText for real work today, expect rough edges in the tooling.
 

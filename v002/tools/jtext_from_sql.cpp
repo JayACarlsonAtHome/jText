@@ -16,8 +16,9 @@
 // PGDATABASE, PGUSER, PGPASSWORD, PGOPTIONS, ...), as psql does. --mariadb connects
 // over the local socket as the current login, as the mariadb client does.
 //
-// Values come through the client library, each with its NULL flag: never through a
-// text dump to be split again (no CSV, no delimiters). A NULL is written as {NULL}, a
+// Values come through Qlite (Qlite/, one API over the three databases' client
+// libraries), each with its NULL flag: never through a text dump to be split again (no
+// CSV, no delimiters). A NULL is written as {NULL}, a
 // NULL date as the null date (SPEC 2.6.1). The comments come back from the table's
 // linked <table>_comments table (SPEC 4.3), each onto its own line.
 //

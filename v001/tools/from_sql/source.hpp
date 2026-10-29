@@ -1,13 +1,15 @@
 // File: tools/from_sql/source.hpp
 //
-// One database, as jtext_from_sql reads it: through its client library, each value
-// with its NULL flag, never through a text dump to be split again (no CSV, no
+// One database, as jtext_from_sql reads it: through Qlite (one API over the client
+// libraries), each value with its NULL flag, never through a text dump to be split again (no CSV, no
 // delimiters). Each backend lives in its own file; where its library is missing, the
 // build uses that backend's *_none.cpp, whose open function says so.
 
 #pragma once
 
 #include "parser/section.hpp"   // jtext::kNullValue
+
+#include <Qlite/v001/Database.hpp>   // the Database concept and Error every backend shares
 
 #include <cctype>
 #include <charconv>
@@ -65,6 +67,30 @@ struct Source {
     virtual std::optional<std::vector<Row>> comment_rows(const std::string& table) = 0;
     std::string error;   // why the last call returned nothing
 };
+
+// Every row of `sql` on `db`, each value as the database's text for it (a NULL as
+// {NULL}); `args` bound to its placeholders. On a Qlite error: nothing, with `error` set.
+template<Qlite::v001::Database Db, typename... Args>
+std::optional<std::vector<Row>> rows_of(Db& db, std::string& error, const std::string& sql, const Args&... args)
+{
+    try {
+        auto st = db.prepare(sql);
+        st.bind(args...);
+        std::vector<Row> out;
+        while (st.step()) {
+            Row row;
+            for (int c = 0; c < st.column_count(); ++c) {
+                auto v = st.template get_by_name<std::optional<std::string>>(st.column_name(c));
+                row.push_back(v ? std::move(*v) : std::string{jtext::kNullValue});
+            }
+            out.push_back(std::move(row));
+        }
+        return out;
+    } catch (const Qlite::v001::Error& e) {
+        error = e.what();
+        return std::nullopt;
+    }
+}
 
 // Each returns the connected source, or nothing with `error` set (the database's own
 // message, or that this build has no such backend).

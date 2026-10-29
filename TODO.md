@@ -4,7 +4,7 @@
 
 `tool_round_trip_sqlite`, `tool_round_trip_postgres` and `tool_round_trip_mariadb` take one
 fixture (`tools/tests/fixtures/roundtrip/`) through `jtext_xtox_sql` into each database and
-back through `jtext_from_sql` (libpq / SQLite / MariaDB Connector/C, never a text dump),
+back through `jtext_from_sql` (through Qlite: libpq / SQLite / MariaDB Connector/C, never a text dump),
 export the original and the copy as data-scope XML (`XML_EXPORT.md`), and compare the bytes.
 PostgreSQL works in a throwaway schema, MariaDB in a throwaway database (the login needs
 `` GRANT ALL ON `jtext\_round\_trip\_%`.* ``); each is reported as skipped where no server

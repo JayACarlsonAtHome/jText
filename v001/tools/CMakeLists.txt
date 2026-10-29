@@ -37,7 +37,7 @@ if(JTEXT_BUILD_TOOLS)
     # library is missing from from_sql/<db>_none.cpp, which says so when asked.
     add_executable(jtext_from_sql jtext_from_sql.cpp)
     target_include_directories(jtext_from_sql PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(jtext_from_sql PRIVATE jText::jText)
+    target_link_libraries(jtext_from_sql PRIVATE jText::jText Qlite::Qlite)
     target_compile_features(jtext_from_sql PRIVATE cxx_std_23)
     set_target_properties(jtext_from_sql PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     find_package(PostgreSQL QUIET)
