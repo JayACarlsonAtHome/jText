@@ -10,6 +10,7 @@
 #                    written before closers were required), so it reads again.
 #   jtext_to_xml   : the canonical XML export (XML_EXPORT.md), the compare standard
 #   jtext_from_xml : that XML back into jText (either scope)
+#   jtext_to_html / jtext_from_html : that XML as HTML tables, and back (HTML_EXPORT.md)
 #                    for every round trip.
 #   jtext_from_sql : DB -> jText. Reads a PostgreSQL (libpq) or SQLite table
 #                    and generates the four jText component files, every row and
@@ -86,15 +87,18 @@ if(JTEXT_BUILD_TOOLS)
         message(STATUS "jtext_to_ods / jtext_from_ods not built: they need libzip and libxml2")
     endif()
 
-    # jtext_from_xml (XML_EXPORT.md): the XML export back into jText, through libxml2.
+    # jtext_from_xml (XML_EXPORT.md): the XML export back into jText; jtext_to_html /
+    # jtext_from_html (HTML_EXPORT.md): that XML as HTML tables, and back. Through libxml2.
     if(TARGET LibXml2::LibXml2)
-        add_executable(jtext_from_xml jtext_from_xml.cpp)
-        target_include_directories(jtext_from_xml PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-        target_link_libraries(jtext_from_xml PRIVATE jText::jText LibXml2::LibXml2)
-        target_compile_features(jtext_from_xml PRIVATE cxx_std_23)
-        set_target_properties(jtext_from_xml PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+        foreach(tool jtext_from_xml jtext_to_html jtext_from_html)
+            add_executable(${tool} ${tool}.cpp)
+            target_include_directories(${tool} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+            target_link_libraries(${tool} PRIVATE jText::jText LibXml2::LibXml2)
+            target_compile_features(${tool} PRIVATE cxx_std_23)
+            set_target_properties(${tool} PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+        endforeach()
     else()
-        message(STATUS "jtext_from_xml not built: it needs libxml2")
+        message(STATUS "jtext_from_xml, jtext_to_html, jtext_from_html not built: they need libxml2")
     endif()
 
     # Independent tests for the tools (registered only when tests are enabled).
@@ -167,6 +171,12 @@ if(JTEXT_BUILD_TOOLS)
                             -DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/${fixture}
                             -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
                             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_xml_round_trip.cmake)
+                    add_test(NAME tool_html_round_trip_${fname}_${scope}
+                        COMMAND ${CMAKE_COMMAND} -DTOXML=$<TARGET_FILE:jtext_to_xml>
+                            -DTOHTML=$<TARGET_FILE:jtext_to_html> -DFROMHTML=$<TARGET_FILE:jtext_from_html>
+                            -DSCOPE=${scope} -DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/${fixture}
+                            -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_html_round_trip.cmake)
                 endforeach()
             endforeach()
         endif()
