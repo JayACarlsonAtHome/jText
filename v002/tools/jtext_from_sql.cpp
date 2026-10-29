@@ -29,6 +29,7 @@
 #include "parser/section.hpp"      // jtext::kNullValue, kDefaultNullDate
 
 #include "from_sql/source.hpp"   // the databases, one file each
+#include "common/record_lines.hpp"   // the rows and their comments, back as jText lines
 
 #include <algorithm>
 #include <cctype>
@@ -103,29 +104,12 @@ static std::string sql_type(const Column& c)
     return c.length > 0 ? std::format("VARCHAR({})", c.length) : std::string{"TEXT"};
 }
 
-// The comments of one record (or of the Fields block), by the field their line starts at.
-struct LineComments {
-    std::map<unsigned, std::string> line;                  // the comment on the line
-    std::map<unsigned, std::vector<std::string>> before;   // comment lines before it
-    std::vector<std::string> end;                          // comment lines at the block's end
-};
-
 static void write_table(std::ostream& out, const std::string& base, const std::string& table,
                         const std::string& dialect, const std::string& related,
                         const std::vector<Column>& cols, std::vector<Row> rows,
                         const std::vector<jtext::located_comment>& comments)
 {
-    LineComments fields;
-    std::map<std::int64_t, LineComments> records;
-    std::vector<std::string> data_end;
-    for (const auto& c : comments) {   // ordered by block, record, position, seq
-        const bool in_fields = c.block == "fields";
-        if (!in_fields && c.position == 0) { data_end.push_back(c.text); continue; }
-        auto& lc = in_fields ? fields : records[c.record_id];
-        if (c.position == 0) lc.end.push_back(c.text);
-        else if (c.kind == "line") lc.line[c.position] = c.text;
-        else lc.before[c.position].push_back(c.text);
-    }
+    const auto grouped = jtools::group_comments(comments);
 
     jText::v002::write_file_comment_header(out, base + ".jtext", "jText Data File", related);
     jText::v002::JTextWriter w(out);
@@ -137,16 +121,14 @@ static void write_table(std::ostream& out, const std::string& base, const std::s
     w.write_header();
     w.begin_section(table);
 
-    w.begin_fields();
-    for (std::size_t i = 0; i < cols.size(); ++i) {
-        const auto p = static_cast<unsigned>(i + 1);
-        for (const auto& t : fields.before[p]) w.write_comment_line(t);
-        w.append_row(p, declaration(cols[i]), fields.line.contains(p) ? fields.line[p] : "", U'/');
-    }
-    for (const auto& t : fields.end) w.write_comment_line(t);
-    w.end_fields();
+    std::vector<jtools::Declaration> fields;
+    for (const auto& c : cols) fields.push_back({declaration(c), {}});
+    for (const auto& [p, text] : grouped.fields.line)
+        if (p >= 1 && p <= fields.size()) fields[p - 1].comment = text;
+    jtools::write_fields(w, fields, grouped.fields);
 
     w.begin_data();
+    static const jtools::LineComments kNone;
     for (auto& row : rows) {
         // A date field always holds a date (SPEC 2.6.1).
         for (std::size_t i = 0; i < cols.size() && i < row.size(); ++i) {
@@ -155,29 +137,10 @@ static void write_table(std::ostream& out, const std::string& base, const std::s
                 row[i] = cols[i].type == "Date" ? std::string{jtext::kDefaultNullDate}
                                                 : std::format("{} 00:00:00", jtext::kDefaultNullDate);
         }
-        std::int64_t id = 0;
-        if (!row.empty()) std::from_chars(row[0].data(), row[0].data() + row[0].size(), id);
-        auto& lc = records[id];
-
-        // One line from field 1, and a new line wherever a comment's line starts.
-        std::vector<unsigned> starts{1};
-        for (const auto& [p, _] : lc.line) starts.push_back(p);
-        for (const auto& [p, _] : lc.before) starts.push_back(p);
-        std::ranges::sort(starts);
-        starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
-        for (std::size_t s = 0; s < starts.size() && starts[s] <= row.size(); ++s) {
-            const unsigned from = starts[s];
-            const unsigned to = s + 1 < starts.size() ? starts[s + 1] : static_cast<unsigned>(row.size() + 1);
-            for (const auto& t : lc.before[from]) w.write_comment_line(t);
-            jText::v002::JTextEntry e;
-            e.number = from;
-            for (unsigned p = from; p < to && p <= row.size(); ++p) e.fields.emplace_back(row[p - 1]);
-            if (lc.line.contains(from)) e.comment = lc.line[from];
-            w.append_entry(e);
-        }
-        w.end_record();
+        const auto it = grouped.records.find(jtools::record_id(row));
+        jtools::write_record(w, row, it == grouped.records.end() ? kNone : it->second);
     }
-    for (const auto& t : data_end) w.write_comment_line(t);
+    for (const auto& t : grouped.data_end) w.write_comment_line(t);
     w.finalize();
 }
 

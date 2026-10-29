@@ -1,0 +1,30 @@
+//File:    ods_declarations.jtFull
+//Date:    2026-10-29
+//Purpose: jText Data File — declarations a spreadsheet keeps and a database does not
+//
+=== jText File ===
+ 1. ?# ods_declarations.jtFull
+ 4. ?# 0.8
+
+=== Section: Parts ===
+=== Fields ===
+ 1. /# part_id/Identity(1,1)/Integer      # auto designation
+ 2. /# name/String/30/Not Null/Not Empty  # never empty
+ 3. /# price/Number/Nullable              # exact text: 3.50 stays 3.50
+ 4. /# received/Date/NullDate(2000-01-01) # its own null date
+ 5. /# grade/Bool
+=== End Fields ===
+=== Data ===
+ 1. ▮▌ 1▮Bolt▮3.50▮2024-02-29▮Yes ▌ leap day
+ 1. ▮▌ 2▮Nut  and  washer▮-0.25▮2000-01-01▮No
+// tabs and line breaks survive too
+ 1. ▮▌ 3
+ 2. [* # a multiline name
+    ** Shim	kit
+    **   indented  line
+    ** last line
+    *]
+ 3. ▮▌ 1e3▮2023-01-31▮T
+=== End Data ===
+=== End Section ===
+=== End File ===

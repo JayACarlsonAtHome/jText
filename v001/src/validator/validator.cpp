@@ -328,38 +328,6 @@ auto looks_like_number(std::string_view s) -> bool
     return has_digit;
 }
 
-// Date: STRICT calendar date, exactly YYYY-MM-DD — nothing else.
-//
-// Date interpretation is notoriously locale/country-dependent (is 03-04-05 in
-// March or April? which is the year?), so jText deliberately requires the one
-// unambiguous ISO form and rejects everything else: no datetimes, no times, no
-// alternate separators, no 2-digit years. The value is also checked as a real
-// calendar date (month 1-12, day valid for the month, leap-year-aware), so
-// Feb 30 / 2026-13-45 are rejected too.
-auto looks_like_date(std::string_view s) -> bool
-{
-    if (s.size() != 10) return false;
-    auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
-    if (!is_digit(s[0]) || !is_digit(s[1]) || !is_digit(s[2]) || !is_digit(s[3])) return false;
-    if (s[4] != '-') return false;
-    if (!is_digit(s[5]) || !is_digit(s[6])) return false;
-    if (s[7] != '-') return false;
-    if (!is_digit(s[8]) || !is_digit(s[9])) return false;
-
-    const int year  = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
-    const int month = (s[5] - '0') * 10 + (s[6] - '0');
-    const int day   = (s[8] - '0') * 10 + (s[9] - '0');
-
-    if (month < 1 || month > 12) return false;
-
-    static constexpr int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    int max_day = days_in_month[month - 1];
-    const bool leap = (year % 4 == 0) && (year % 100 != 0 || year % 400 == 0);
-    if (month == 2 && leap) max_day = 29;
-
-    return day >= 1 && day <= max_day;
-}
-
 // DateTime: STRICT ISO 8601, in the same spirit as Date (one unambiguous form):
 //   YYYY-MM-DD, then 'T' or one space, then HH:MM:SS,
 //   then optional fractional seconds (.d to .ddddddddd),
@@ -393,6 +361,38 @@ auto looks_like_datetime(std::string_view s) -> bool
 }
 
 }  // anonymous namespace
+
+// Date: STRICT calendar date, exactly YYYY-MM-DD — nothing else.
+//
+// Date interpretation is notoriously locale/country-dependent (is 03-04-05 in
+// March or April? which is the year?), so jText deliberately requires the one
+// unambiguous ISO form and rejects everything else: no datetimes, no times, no
+// alternate separators, no 2-digit years. The value is also checked as a real
+// calendar date (month 1-12, day valid for the month, leap-year-aware), so
+// Feb 30 / 2026-13-45 are rejected too.
+auto looks_like_date(std::string_view s) -> bool
+{
+    if (s.size() != 10) return false;
+    auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
+    if (!is_digit(s[0]) || !is_digit(s[1]) || !is_digit(s[2]) || !is_digit(s[3])) return false;
+    if (s[4] != '-') return false;
+    if (!is_digit(s[5]) || !is_digit(s[6])) return false;
+    if (s[7] != '-') return false;
+    if (!is_digit(s[8]) || !is_digit(s[9])) return false;
+
+    const int year  = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
+    const int month = (s[5] - '0') * 10 + (s[6] - '0');
+    const int day   = (s[8] - '0') * 10 + (s[9] - '0');
+
+    if (month < 1 || month > 12) return false;
+
+    static constexpr int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int max_day = days_in_month[month - 1];
+    const bool leap = (year % 4 == 0) && (year % 100 != 0 || year % 400 == 0);
+    if (month == 2 && leap) max_day = 29;
+
+    return day >= 1 && day <= max_day;
+}
 
 // ──────────────────────────────────────────────────────────────
 //  Field-declaration interpretation

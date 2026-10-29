@@ -610,9 +610,9 @@ The parser scans the data from left to right. The first comment character with a
 
 A comment character that is the **first character of the data**, followed by a space or the end of the line, also opens a comment. The space between the formatter and it is padding for the reader; nothing stands before it, so the value is the empty string. ` 4. ?# # Note` holds an empty field 4 with the comment `Note`. Only that first comment character is the indicator: the rest of the line is the comment, so ` 4. ?# # # Note` has the comment `# Note`.
 
-Anywhere else, the comment character **without** a space on each side is data. It does not open a comment, and it is not removed. Each data field that contains one or more such characters produces a **warning**. The warning names the record id and the field number (Section 6.2). `C#` warns when `#` is the comment character. The value stays `C#`.
+Anywhere else, the comment character **without** a space on each side is data. It does not open a comment, it is not removed, and nothing warns about it: `C#` is the value `C#` when `#` is the comment character.
 
-The formatter's own characters are not data. The `#` in `|#` does not warn and does not open a comment, because it is not surrounded by spaces.
+The formatter's own characters are not data. The `#` in `|#` does not open a comment, because it is not surrounded by spaces.
 
 #### 3.2.1 Comments Are Data
 
@@ -670,7 +670,7 @@ Empty value (deliberately blank):
  1. ?#                                    # explicitly empty data
 ```
 
-A comment character in the data, without a space on each side. The value stays `C# compiler`. Validation warns, and the warning names this record's field-1 id and field 1:
+A comment character in the data, without a space on each side. It is data: the value is `C# compiler`:
 
 ```
  1. ?# C# compiler                        # language name
@@ -935,7 +935,6 @@ Semantic errors include:
 
 Semantic **warnings** (non-blocking) include:
 
-- A comment character in a data field without a space on each side (Section 3.2). The character stays in the data.
 - Duplicate section names within a file (Section 2.3)
 - A section with no records
 - Unknown file-header line numbers (Section 2.3)
@@ -949,8 +948,6 @@ Semantic **warnings** (non-blocking) include:
 - **Field number** is the `N` of the line, reported as the field number.
 
 A warning that is not on a data line still follows the same report. A duplicate section name has no record id and no field number; it names the section. An unknown header field has no record id and names that header field's number. A semantic error on a data line names the same record id and field number.
-
-One field that contains several bare comment characters produces one warning for that field. Two fields produce two warnings, each with the record id and its own field number.
 
 A validator should report **all** errors and warnings found, not stop at the first one. This allows authors to fix everything in one editing pass.
 
@@ -1175,7 +1172,7 @@ All other open questions from earlier drafts have been resolved.
 | Term | Definition |
 |------|------------|
 | **Splicing character** | The first character (one Unicode code point) of a two-character formatter. Splits fields on a compact line and levels in a hierarchy. |
-| **Comment character** | The second character (one Unicode code point) of a two-character formatter. Opens a comment when a space sits on each side of it. Without those spaces, inside the data, it stays data and produces a warning. |
+| **Comment character** | The second character (one Unicode code point) of a two-character formatter. Opens a comment when a space sits on each side of it, or as the first character of the data. Anywhere else it is data. |
 | **Formatter** | The 2-character declaration at the start of a line: `<splice><comment>`. A 3-character marker is accepted on ingress and kept as its last two characters. |
 | **Field** | A named, typed slot declared in a section's fields block |
 | **Record** | A set of field values within a data block, separated by blank lines |
@@ -1198,7 +1195,7 @@ All other open questions from earlier drafts have been resolved.
 
 **v0.8**
 - Section 3 / 3.1: formatter characters are any Unicode Punctuation or Symbol code point, not only printable ASCII; rules 6-9 added (code-point comparison, code-point counting, one-column preference with wide characters accepted, `[` splice reserved for `[]` and `[*`). `▮▌` is the writers' default formatter on every line; the writer falls back to ASCII punctuation only when the data holds `▮` or `▌`.
-- Section 3.2: the comment marker's spaces are ASCII U+0020 only.
+- Section 3.2: the comment marker's spaces are ASCII U+0020 only. A comment character in the data without a space on each side is data, with no warning (v0.7 warned).
 - Sections 2.0.1, 2.0.2, 6.1: every block closes (`=== End Fields ===`, `=== End Data ===`, `=== End Section ===`, `=== End File ===`, `-- End Name --`, `-- EOF --`, `*]`); a block left open is a structural error. `jtext_close` adds missing closers. Unknown `===` markers are errors.
 - Section 5: multiline values are `[*`, `**` lines, `*]`, replacing `<<< SENTINEL` blocks and the `*** ^^^ ###` special block. Templates open with a bare `[*`.
 - Sections 2.6, 3.3: data stays data. In a data line the splice separates field values (a compact row); levels exist only in the Fields block and header. A path is one value on a line whose splice it does not contain.

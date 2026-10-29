@@ -103,6 +103,9 @@ auto parse_auto_id_designation(std::string_view s) -> std::optional<auto_id_spec
 // nothing else (no decimal point, no exponent). The record id must be one.
 auto looks_like_integer(std::string_view s) -> bool;
 
+// True when `s` is exactly YYYY-MM-DD and a real calendar date (the Date type).
+auto looks_like_date(std::string_view s) -> bool;
+
 // Galactic Standard Time (SPEC Section 2.4.1), written "<year>:<ticks>":
 //   year  = earth_approximate_year, a signed 64-bit integer
 //   ticks = earth_approximate_year_ticks, 10 ps ticks since the start of that

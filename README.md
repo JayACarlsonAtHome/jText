@@ -122,7 +122,7 @@ Every other text format has *fixed* reserved characters: CSV reserves `,` and `"
 jText reverses this. **Each line carries its own two-character marker:** `<splice><comment>`. The older marker was three characters. Dropping one character on every field line is 10 million bytes on a 10 million row compact table, and it multiplies by the number of field lines.
 
 - The first character splits a data line into fields (a multifield line: each piece fills the next field), and a field declaration into its parts (`name/Type/Not Null`). Data stays data: a path such as `Hand Tools/Hammers` is one value, so write it with a splicing character it does not contain (`?#`).
-- The second character starts a comment when a space sits on each side of it. If the data contains `#`, choose a different comment character. The same character in the data without a space on each side stays data, and validation warns. The warning names the record id and the field number.
+- The second character starts a comment when a space sits on each side of it. If the data contains `#`, choose a different comment character. The same character in the data without a space on each side stays data: `C#` is just `C#`.
 - A `'` is stored as `'`.
 
 ```

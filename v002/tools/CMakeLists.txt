@@ -65,6 +65,26 @@ if(JTEXT_BUILD_TOOLS)
     endforeach()
     message(STATUS "jtext_from_sql backends: ${JTEXT_FROM_SQL_BACKENDS}")
 
+    # jtext_to_ods / jtext_from_ods (ODS.md): the archive through libzip, content.xml
+    # through libxml2; built where both are installed (libzip-devel, libxml2-devel).
+    find_package(LibXml2 QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(JTEXT_LIBZIP QUIET IMPORTED_TARGET libzip)
+    endif()
+    if(TARGET LibXml2::LibXml2 AND TARGET PkgConfig::JTEXT_LIBZIP)
+        add_library(jtext_ods STATIC ods/ods.cpp)
+        target_include_directories(jtext_ods PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(jtext_ods PUBLIC jText::jText LibXml2::LibXml2 PkgConfig::JTEXT_LIBZIP)
+        target_compile_features(jtext_ods PUBLIC cxx_std_26)
+        foreach(tool jtext_to_ods jtext_from_ods)
+            add_executable(${tool} ${tool}.cpp)
+            target_link_libraries(${tool} PRIVATE jtext_ods)
+            set_target_properties(${tool} PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+        endforeach()
+    else()
+        message(STATUS "jtext_to_ods / jtext_from_ods not built: they need libzip and libxml2")
+    endif()
+
     # Independent tests for the tools (registered only when tests are enabled).
     # - xtox_sql: a real functional run against the bundled workshop_tools fixture.
     # - from_sql: arg-validation always; a live DB round-trip only when psql + a
@@ -121,6 +141,27 @@ if(JTEXT_BUILD_TOOLS)
                 set_tests_properties(tool_round_trip_${db} PROPERTIES SKIP_RETURN_CODE 77)
             endif()
         endforeach()
+
+        # Round trips through an OpenDocument spreadsheet, directly and through LibreOffice.
+        if(TARGET jtext_to_ods)
+            find_program(JTEXT_SOFFICE soffice)
+            set(ods_args -DTOODS=$<TARGET_FILE:jtext_to_ods> -DFROMODS=$<TARGET_FILE:jtext_from_ods>
+                         -DTOXML=$<TARGET_FILE:jtext_to_xml> -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR})
+            add_test(NAME tool_ods_round_trip
+                COMMAND ${CMAKE_COMMAND} ${ods_args} -DNAME=ods_round_trip
+                    -DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/roundtrip/roundtrip.jtFull
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ods_round_trip.cmake)
+            add_test(NAME tool_ods_declarations
+                COMMAND ${CMAKE_COMMAND} ${ods_args} -DNAME=ods_declarations
+                    -DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/ods_declarations/ods_declarations.jtFull
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ods_round_trip.cmake)
+            if(JTEXT_SOFFICE)
+                add_test(NAME tool_ods_through_calc
+                    COMMAND ${CMAKE_COMMAND} ${ods_args} -DNAME=ods_through_calc -DSOFFICE=${JTEXT_SOFFICE}
+                        -DFIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/roundtrip/roundtrip.jtFull
+                        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ods_round_trip.cmake)
+            endif()
+        endif()
 
         add_test(NAME tool_jtext_from_sql_injection
             COMMAND ${CMAKE_COMMAND}
