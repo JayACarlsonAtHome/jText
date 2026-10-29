@@ -79,7 +79,8 @@ Added rules:
 >    points, not bytes.
 > 8. Writers should prefer characters that display one column wide in common
 >    monospace fonts. Emoji and other double-width characters are valid but break the
->    column alignment of Section 3.7.
+>    column alignment of Section 3.7. They are accepted as written: neither readers nor
+>    the validator warn about them.
 > 9. `[` as the splicing character is reserved for special forms: `[]` (raw data) and
 >    `[*` (a multiline value, Part C). No other formatter may use `[` as its splice.
 
@@ -314,8 +315,3 @@ The library has one parser. `JTextFile::read_full` and `read_section` read throu
 `parse_file_structure`, the same parser the validator and tools use, so every reader
 agrees on every line and enforces closers. Before, `JTextFile::read_full` read
 `1. ▮▌ 1▮a|b # c ▌ x` silently as one value while `parse_line` rejected it.
-
-## Open questions
-
-1. **Double-width characters.** Rule 8 says "should prefer". Should they be a
-   validator warning instead?
