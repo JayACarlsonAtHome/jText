@@ -169,7 +169,7 @@ The recognized file-header fields are:
 | 1 | filename       | yes      | The canonical name of this file                             |
 | 2 | date           | yes      | ISO 8601 recommended (`YYYY-MM-DD` or full datetime)        |
 | 3 | purpose        | yes      | Free-text description of what this file is for              |
-| 4 | jtext_version  | optional | jText spec version this file targets (default: `0.1`)       |
+| 4 | jtext_version  | yes      | jText version the file is written to, e.g. `0.8` (see below) |
 | 5 | case_mode      | optional | `Insensitive` (default) or `Sensitive` — affects name lookups |
 | 6 | sql_dialect    | optional | e.g. `PostgreSQL`, `MySQL`, `SQLite` — informational only   |
 | 7 | table_name     | optional | Default table name; consumed by templates if desired        |
@@ -177,6 +177,15 @@ The recognized file-header fields are:
 | 9 | related_files  | optional | List of related files in a multi-file dataset (see Section 4) |
 
 Additional fields beyond this list are allowed and preserved by parsers; consumers ignore fields they don't recognize.
+
+**Version.** `jtext_version` is a number, `major.minor` (`0.8`), compared part by part as numbers (`0.10` is newer than `0.8`). Writers always declare the version they write. A reader reads the file with its own rules and **warns**, never refuses, when the version is:
+
+- **missing** (files from before v0.8 often have none): read as the reader's version;
+- **older** than the reader's: read with the reader's rules;
+- **newer** than the reader's: parts of the file may use what the reader does not know;
+- **not a version number**: read as the reader's version.
+
+Saving upgrades: a writer declares its own version, so a missing, older or invalid declaration becomes the current one. A save that keeps the rest of the file as written (replacing one section's data) also upgrades the declaration, as the file it keeps has already been read with the current rules. A newer declaration is never lowered.
 
 #### 2.2.1 File Header Example
 
@@ -190,7 +199,7 @@ Additional fields beyond this list are allowed and preserved by parsers; consume
  1. ?# robot_arm_run_47.jText            # filename
  2. ?# 2026-05-11                        # date
  3. ?# Robot arm calibration log         # purpose
- 4. ?# 0.1                               # jtext_version
+ 4. ?# 0.8                               # jtext_version
  5. ?# Insensitive                       # case_mode
  6. ?# PostgreSQL                        # sql_dialect
  7. ?# arm_events                        # table_name
@@ -967,7 +976,7 @@ As an optimization, tools **may** support a `.jCheck/` subdirectory containing a
  1. ?# tools_inventory.jText                       # filename
  2. ?# 2026-05-11                                  # date
  3. ?# Personal workshop tool catalog              # purpose
- 4. ?# 0.1                                         # jtext_version
+ 4. ?# 0.8                                         # jtext_version
  5. ?# Insensitive                                 # case_mode
  6. ?# SQLite                                      # sql_dialect
  7. ?# tools                                       # table_name

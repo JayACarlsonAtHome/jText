@@ -11,10 +11,14 @@
 
 #include "parser/section.hpp"
 #include "parser/line.hpp"
+#include "parser/utf8.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <format>
 #include <istream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -865,6 +869,142 @@ auto parse_file_structure(std::string_view text)
     return build_from_lines(lines);
 }
 
+// ──────────────────────────────────────────────────────────────
+//  Format version
+// ──────────────────────────────────────────────────────────────
+
+namespace {
+
+constexpr std::string_view kLightVersionKey = "jText Version:";
+
+// "0.8" -> {0, 8}; nullopt when the text is not dot-separated numbers.
+auto version_parts(std::string_view v) -> std::optional<std::vector<unsigned>>
+{
+    std::vector<unsigned> parts;
+    while (true) {
+        const auto dot = v.find('.');
+        const auto part = v.substr(0, dot);
+        unsigned n = 0;
+        const auto [end, ec] = std::from_chars(part.data(), part.data() + part.size(), n);
+        if (part.empty() || ec != std::errc{} || end != part.data() + part.size()) return std::nullopt;
+        parts.push_back(n);
+        if (dot == std::string_view::npos) return parts;
+        v.remove_prefix(dot + 1);
+    }
+}
+
+// Makes the version declared in `head` (the file's lines before the replaced data)
+// kFormatVersion when it is missing, older or not a number. A file with no header
+// at all (a ts_store log opening on "=== Section:") is left as it is.
+void upgrade_version(std::vector<std::string>& head, const parsed_file& pf)
+{
+    const auto status = check_version(declared_version(pf));
+    if (status == version_status::current || status == version_status::newer) return;
+
+    if (!pf.metadata.empty()) {   // light: "# jText Version: 0.8", after "# Purpose"
+        const auto line = std::format("# {} {}", kLightVersionKey, kFormatVersion);
+        std::optional<std::size_t> after;
+        for (std::size_t i = 0; i < head.size(); ++i) {
+            const auto t = trim(strip_eol(head[i]));
+            if (!after) {
+                if (t.starts_with(kLightMagic)) after = i;
+                continue;
+            }
+            if (is_blank(t) || t.starts_with("//")) continue;
+            if (!t.starts_with('#')) break;
+            const auto key = trim(t.substr(1));
+            if (key.starts_with(kLightVersionKey)) { head[i] = line; return; }
+            if (key.starts_with("Purpose - ")) after = i;
+        }
+        if (after) head.insert(head.begin() + static_cast<std::ptrdiff_t>(*after + 1), line);
+        return;
+    }
+
+    // Full: header line 4, kept in order between lines 1-3 and 5-9.
+    std::optional<std::size_t> at;
+    std::string fmt = "\u25AE\u258C";
+    for (std::size_t i = 0; i < head.size(); ++i) {
+        const auto stripped = strip_eol(head[i]);
+        std::string interior;
+        if (!at) {
+            if (is_structural_marker(stripped, interior) && marker_is_jtext_file(interior)) at = i + 1;
+            continue;
+        }
+        const auto t = trim(stripped);
+        if (is_blank(t) || t.starts_with('#') || t.starts_with("//")) continue;
+        if (is_structural_marker(stripped, interior)) break;
+        const auto pl = parse_line(stripped);
+        if (!pl) continue;
+        fmt = pl->fmt.to_string();
+        if (pl->number < 4) { at = i + 1; continue; }
+        if (pl->number > 4) break;
+        // Line 4 itself: same indent, formatter and comment, today's version.
+        auto line = std::format("{}4. {} {}", stripped.substr(0, stripped.find_first_not_of(" \t")),
+                                fmt, kFormatVersion);
+        if (!pl->comment.empty()) line += std::format(" {} {}", encode_utf8(pl->fmt.bookend), pl->comment);
+        head[i] = std::move(line);
+        return;
+    }
+    if (at) head.insert(head.begin() + static_cast<std::ptrdiff_t>(*at),
+                        std::format(" 4. {} {}", fmt, kFormatVersion));
+}
+
+}  // anonymous namespace
+
+auto declared_version(const parsed_file& pf) -> std::string
+{
+    for (const auto& hl : pf.header_lines) {
+        if (hl.number != 4) continue;
+        std::string v;
+        for (const auto& level : hl.hierarchy) {
+            if (!v.empty()) v.push_back('/');
+            v += level;
+        }
+        return v;
+    }
+    for (const auto& m : pf.metadata) {
+        const std::string_view sv{m};
+        if (sv.starts_with(kLightVersionKey)) return std::string{trim(sv.substr(kLightVersionKey.size()))};
+    }
+    return {};
+}
+
+auto check_version(std::string_view declared) -> version_status
+{
+    declared = trim(declared);
+    if (declared.empty()) return version_status::missing;
+    auto have = version_parts(declared);
+    if (!have) return version_status::invalid;
+    auto want = *version_parts(kFormatVersion);
+    const auto n = std::max(have->size(), want.size());
+    have->resize(n);
+    want.resize(n);
+    if (*have == want) return version_status::current;
+    return *have < want ? version_status::older : version_status::newer;
+}
+
+auto version_warning(std::string_view declared) -> std::string
+{
+    switch (check_version(declared)) {
+    case version_status::current:
+        return {};
+    case version_status::missing:
+        return std::format("the file declares no jText version; it is read as {0}, "
+                           "and saving it declares {0}", kFormatVersion);
+    case version_status::older:
+        return std::format("the file is jText {0}, older than this reader's {1}; it is read "
+                           "with {1} rules, and saving it upgrades it to {1}",
+                           trim(declared), kFormatVersion);
+    case version_status::newer:
+        return std::format("the file is jText {}, newer than this reader's {}; "
+                           "parts of it may be misread", trim(declared), kFormatVersion);
+    case version_status::invalid:
+        return std::format("the file's jText version '{0}' is not a version number; it is "
+                           "read as {1}, and saving it declares {1}", trim(declared), kFormatVersion);
+    }
+    return {};
+}
+
 auto replace_section_data(std::string_view text, std::string_view section, std::string_view data)
     -> std::expected<std::string, file_error>
 {
@@ -894,8 +1034,11 @@ auto replace_section_data(std::string_view text, std::string_view section, std::
                          : std::format("no section '{}'", section));
     }
 
+    std::vector<std::string> head(lines.begin(), lines.begin() + static_cast<std::ptrdiff_t>(found->data_begin));
+    upgrade_version(head, *parsed);
+
     std::string out;
-    for (std::size_t i = 0; i < found->data_begin; ++i) { out += lines[i]; out += '\n'; }
+    for (const auto& line : head) { out += line; out += '\n'; }
     out += data;
     if (!data.empty() && data.back() != '\n') out += '\n';
     for (std::size_t i = found->data_end; i < lines.size(); ++i) { out += lines[i]; out += '\n'; }

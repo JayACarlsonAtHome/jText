@@ -485,6 +485,36 @@ int main() {
                        IK::record_value_type_mismatch), "non-GST value rejected");
     }
 
+    // ─── jtext_version (SPEC 2.3): a warning, never an error ───
+    {
+        const auto with_version = [](const std::string& line4) {
+            const std::string doc =
+                "=== jText File ===\n 1. #?# v\n" + line4 +
+                "\n=== Section: R ===\n=== Fields ===\n=== End Fields ===\n"
+                "=== Data ===\n=== End Data ===\n=== End Section ===\n=== End File ===\n";
+            auto pf = jtext::parse_file_structure(doc);
+            return pf ? std::optional{jtext::validate(*pf)} : std::nullopt;
+        };
+        must(clean(with_version("")) && has_issue(with_version(""), IK::header_missing_jtext_version),
+             "missing jtext_version warns");
+        must(has_issue(with_version(" 4. #?# 0.6\n"), IK::header_older_jtext_version), "0.6 warns: older");
+        must(has_issue(with_version(" 4. #?# 0.9\n"), IK::header_newer_jtext_version), "0.9 warns: newer");
+        must(has_issue(with_version(" 4. #?# abc\n"), IK::header_invalid_jtext_version), "abc warns: invalid");
+        const auto current = with_version(" 4. #?# 0.8\n");
+        must(current && current->file.header.at("jtext_version") == "0.8" &&
+             !has_issue(current, IK::header_missing_jtext_version) &&
+             !has_issue(current, IK::header_older_jtext_version) &&
+             !has_issue(current, IK::header_newer_jtext_version) &&
+             !has_issue(current, IK::header_invalid_jtext_version), "0.8: no version warning");
+
+        auto light = jtext::parse_file_structure(
+            "# JText File - created 2026-01-01\n# Purpose - p\n# jText Version: 0.8\n\n"
+            "-- s --\n\n-- End s --\n-- EOF --\n");
+        must(light && !has_issue(jtext::validate(*light), IK::header_missing_jtext_version) &&
+             jtext::validate(*light).file.header.at("jtext_version") == "0.8",
+             "light \"# jText Version:\" is read");
+    }
+
     // ─── segments in any order, each at most once ───
     must(clean(validate_doc(" 1. #/# id/Not Null/Integer\n 2. #/# v/40/Text/Nullable\n", two_fields_data)),
          "segments in any order");

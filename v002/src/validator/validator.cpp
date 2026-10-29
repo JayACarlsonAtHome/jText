@@ -77,6 +77,9 @@ auto to_string(issue_kind k) -> std::string_view
         case issue_kind::record_gst_leap_seconds:      return "record_gst_leap_seconds";
         case issue_kind::record_gst_beyond_leap_room:  return "record_gst_beyond_leap_room";
         case issue_kind::header_unknown_field:         return "header_unknown_field";
+        case issue_kind::header_missing_jtext_version: return "header_missing_jtext_version";
+        case issue_kind::header_older_jtext_version:   return "header_older_jtext_version";
+        case issue_kind::header_newer_jtext_version:   return "header_newer_jtext_version";
         case issue_kind::header_invalid_jtext_version: return "header_invalid_jtext_version";
         case issue_kind::template_placeholder_out_of_range: return "template_placeholder_out_of_range";
         case issue_kind::section_empty:                return "section_empty";
@@ -1061,24 +1064,25 @@ auto interpret_header(
         out[std::string{key}] = std::move(value);
     }
 
-    // jtext_version sanity check.
-    if (auto it = out.find("jtext_version"); it != out.end()) {
-        const auto& v = it->second;
-        // Expected shape: a major.minor decimal or just digits.
-        // We accept any non-empty value with at least one digit; a
-        // stricter form is possible later.
-        bool has_digit = false;
-        for (char c : v) if (c >= '0' && c <= '9') { has_digit = true; break; }
-        if (!has_digit) {
-            report_issue(report, issue_severity::warning,
-                         issue_kind::header_invalid_jtext_version,
-                         0, "header",
-                         std::format("jtext_version '{}' does not look like a "
-                                     "version number", v));
-        }
-    }
-
     return out;
+}
+
+// The version the file declares (header line 4, or the light "# jText Version:"),
+// checked against the one this library reads.
+void check_jtext_version(const parsed_file& pf, validated_file& file, validation_report& report)
+{
+    const auto declared = declared_version(pf);
+    if (!declared.empty()) file.header["jtext_version"] = declared;
+
+    issue_kind kind{};
+    switch (check_version(declared)) {
+    case version_status::current: return;
+    case version_status::missing: kind = issue_kind::header_missing_jtext_version; break;
+    case version_status::older:   kind = issue_kind::header_older_jtext_version;   break;
+    case version_status::newer:   kind = issue_kind::header_newer_jtext_version;   break;
+    case version_status::invalid: kind = issue_kind::header_invalid_jtext_version; break;
+    }
+    report_issue(report, issue_severity::warning, kind, 0, "header", version_warning(declared));
 }
 
 }  // anonymous namespace
@@ -1092,6 +1096,7 @@ auto validate(const parsed_file& pf, validation_level level) -> validate_result
     validate_result vr;
 
     vr.file.header = interpret_header(pf.header_lines, vr.report);
+    check_jtext_version(pf, vr.file, vr.report);
 
     std::set<std::string> section_names_seen;
 

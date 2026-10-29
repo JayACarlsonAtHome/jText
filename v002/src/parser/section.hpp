@@ -172,10 +172,40 @@ auto parse_file_structure(std::istream& in)
 auto parse_file_structure(std::string_view text)
     -> std::expected<parsed_file, file_error>;
 
+// ──────────────────────────────────────────────────────────────
+//  Format version (SPEC 2.3)
+//
+//  kFormatVersion is the jText version this library reads and writes. A file
+//  declares its own: full-profile header line 4, or the light profile's
+//  "# jText Version:" line. Readers warn when it is missing, older, newer or
+//  not a number; writers declare kFormatVersion, so saving a file upgrades it.
+//  A newer declaration is never lowered.
+// ──────────────────────────────────────────────────────────────
+
+inline constexpr std::string_view kFormatVersion = "0.8";
+
+enum class version_status : std::uint8_t {
+    current,   // the file declares kFormatVersion
+    missing,   // no version declared (files from before v0.8 often have none)
+    older,     // an earlier version: read with today's rules, upgraded on save
+    newer,     // a later version: it may hold what this reader does not know
+    invalid,   // not a version number ("major.minor")
+};
+
+// The version `pf` declares, or "" when it declares none.
+auto declared_version(const parsed_file& pf) -> std::string;
+
+auto check_version(std::string_view declared) -> version_status;
+
+// The warning a reader gives for a file declaring `declared`; "" when it is current.
+auto version_warning(std::string_view declared) -> std::string;
+
 // The file `text` with one section's data lines replaced by `data` (whole lines, each
 // ending in '\n'); every other line stays exactly as it was: the header, templates,
 // Fields block, includes, and the other sections. The section is found by name and
 // must appear once, with a data block. Comments between the old data lines go with them.
+// The one exception is the version: a missing or older one becomes kFormatVersion, as
+// the new data is written to today's rules (a newer one is kept).
 auto replace_section_data(std::string_view text, std::string_view section, std::string_view data)
     -> std::expected<std::string, file_error>;
 

@@ -124,6 +124,13 @@ auto JTextFile::read_file(std::string_view filepath, std::string_view only_secti
                                            parsed.error().message)};
     }
 
+    warnings.clear();
+    jtext_version = jtext::declared_version(*parsed);
+    if (auto w = jtext::version_warning(jtext_version); !w.empty()) {
+        std::println(stderr, "Warning: {}: {}", filepath, w);
+        warnings.push_back(std::move(w));
+    }
+
     // Header: the light profile's "#" metadata, or the full profile's numbered
     // header lines by position (SPEC 2.3).
     for (const auto& m : parsed->metadata) parse_header(m);
@@ -394,7 +401,7 @@ void write_jtext_hash_header(std::ostream& out,
                                bool auto_id) {
     out << std::format("# JText File - created {}\n", created_utc);
     out << std::format("# Purpose - {}\n", purpose);
-    out << "# jText Version: 0.8\n";   // the file may use non-ASCII formatters (SPEC v0.8, 2.3)
+    out << std::format("# jText Version: {}\n", jtext::kFormatVersion);   // SPEC 2.3
     out << std::format("# Case: {}\n",
         case_mode == CaseMode::Insensitive ? "INSENSITIVE" : "Sensitive");
     if (!sql_dialect.empty()) {
@@ -944,7 +951,7 @@ void JTextWriter::write_header()
         if (!filename_.empty()) write_full_header_line(1, filename_);
         write_full_header_line(2, date);
         if (!purpose_.empty()) write_full_header_line(3, purpose_);
-        write_full_header_line(4, "0.8");
+        write_full_header_line(4, jtext::kFormatVersion);
         write_full_header_line(5, case_mode_ == CaseMode::Insensitive ? "Insensitive" : "Sensitive");
         if (!sql_dialect_.empty()) write_full_header_line(6, sql_dialect_);
         if (!table_name_.empty()) write_full_header_line(7, table_name_);

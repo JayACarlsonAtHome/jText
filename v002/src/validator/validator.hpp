@@ -253,7 +253,10 @@ enum class issue_kind : std::uint8_t {
 
     // Header
     header_unknown_field,             // header line number > recognized range
-    header_invalid_jtext_version,     // jtext_version not parseable
+    header_missing_jtext_version,     // no jtext_version declared
+    header_older_jtext_version,       // jtext_version older than jtext::kFormatVersion
+    header_newer_jtext_version,       // jtext_version newer than jtext::kFormatVersion
+    header_invalid_jtext_version,     // jtext_version not a version number
 
     // Templates
     template_placeholder_out_of_range, // {N} references field 0 or > field_count

@@ -97,7 +97,9 @@ spaces for this rule.
 declare `jtext_version` `0.8` or later: header line 4 in the full profile, and the line
 `# jText Version: 0.8` in the light profile's `#` block (after `# Purpose`, the full
 profile's order). Readers implementing v0.8 parse such lines regardless of the declared
-version. *(Both writers declare `0.8`.)*
+version. *(Both writers declare `0.8`.)* A reader warns when the version is missing,
+older, newer or not a number, and reads on; saving upgrades a missing or older
+declaration to the writer's version and never lowers a newer one (SPEC 2.3, "Version").
 
 **Section 6.1.** "Malformed formatters" now includes a character that is not
 Punctuation or Symbol, and a formatter that is not valid UTF-8.
@@ -317,5 +319,3 @@ agrees on every line and enforces closers. Before, `JTextFile::read_full` read
 
 1. **Double-width characters.** Rule 8 says "should prefer". Should they be a
    validator warning instead?
-2. **Version enforcement.** Should a v0.8 reader warn when a file uses a non-ASCII
-   formatter but declares a `jtext_version` below 0.8?

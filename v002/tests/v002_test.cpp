@@ -1,6 +1,6 @@
 #include <jText/v002.hpp>
 
-static_assert(jText::v002::version() == "v002.015", "v002 version");
+static_assert(jText::v002::version() == "v002.016", "v002 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -637,14 +637,15 @@ int main() {
 
     {
         // A file of configurations (dev, test, prod): replacing one section's data
-        // leaves every other line of the file exactly as it was.
+        // leaves every other line of the file exactly as it was (the files declare the
+        // current version; an older one is upgraded, tested with the versions below).
         auto section = [](std::string_view name, std::string_view rows) {
             return std::string("=== Section: ") + std::string(name) + " ===\n"
                    "=== Template: Insert ===\n[*\n** INSERT {1};\n*]\n"
                    "=== Fields ===\n 1. /# id/Identity(1,1)\n 2. /# host/String\n=== End Fields ===\n"
                    "=== Data ===\n" + std::string(rows) + "=== End Data ===\n=== End Section ===\n\n";
         };
-        const std::string head = "=== jText File ===\n 1. ?# configs\n\n";
+        const std::string head = "=== jText File ===\n 1. ?# configs\n 4. ?# 0.8\n\n";
         const std::string dev = section("dev", " 1. |# 1|dev.local\n");
         const std::string prod = section("prod", " 1. |# 1|prod.example\n# keep me\n");
         const std::string full = head + dev + section("test", " 1. |# 1|test.local\n\n 1. |# 2|test2\n")
@@ -657,23 +658,23 @@ int main() {
         check(back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{"1", "qa.local"}), "back->sections[1].data_lines.back().hierarchy == (std::vector<std::string>{\"1\", \"qa.local\"})");
 
         const std::string light =
-            "# JText File - created x\n\n"
+            "# JText File - created x\n# jText Version: 0.8\n\n"
             "-- dev --\n# Fields: cfg.jtFlds\n 1. |# 1|dev.local\n-- End dev --\n\n"
             "-- test --\n# Fields: cfg.jtFlds\n// note above the rows\n 1. |# 1|test.local\n-- End test --\n\n"
             "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --";   // no final newline
         const auto light_replaced = jtext::replace_section_data(light, "test", " 1. |# 1|qa.local\n 1. |# 2|qa2\n");
         check(light_replaced.has_value(), "light_replaced.has_value()");
         check(*light_replaced ==
-              "# JText File - created x\n\n"
+              "# JText File - created x\n# jText Version: 0.8\n\n"
               "-- dev --\n# Fields: cfg.jtFlds\n 1. |# 1|dev.local\n-- End dev --\n\n"
               "-- test --\n# Fields: cfg.jtFlds\n// note above the rows\n 1. |# 1|qa.local\n 1. |# 2|qa2\n-- End test --\n\n"
-              "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --", "*light_replaced == \"# JText File - created x\\n\\n\" \"-- dev --\\n# Fields: cfg.jtFlds\\n 1. |# 1|dev.local\\n-- End dev --\\n\\n\" \"-- test --\\n# Fields: cfg.jtFlds\\n// note above the rows\\n 1. |# 1|qa.local\\n 1. |# 2|qa2\\n-- End test --\\n\\n\" \"-- prod --\\n 1. |# 1|prod.example\\n-- End prod --\\n\\n-- EOF --\"");
+              "-- prod --\n 1. |# 1|prod.example\n-- End prod --\n\n-- EOF --", "*light_replaced == \"# JText File - created x\\n# jText Version: 0.8\\n\\n\" \"-- dev --\\n# Fields: cfg.jtFlds\\n 1. |# 1|dev.local\\n-- End dev --\\n\\n\" \"-- test --\\n# Fields: cfg.jtFlds\\n// note above the rows\\n 1. |# 1|qa.local\\n 1. |# 2|qa2\\n-- End test --\\n\\n\" \"-- prod --\\n 1. |# 1|prod.example\\n-- End prod --\\n\\n-- EOF --\"");
         check(jtext::parse_file_structure(*light_replaced).has_value(), "jtext::parse_file_structure(*light_replaced).has_value()");
 
         // An empty light section takes its first rows right before its closer.
         const auto empty = jtext::replace_section_data(
-            "# JText File - created x\n-- new --\n-- End new --\n-- EOF --\n", "new", " 1. |# 1|a\n");
-        check(empty && *empty == "# JText File - created x\n-- new --\n 1. |# 1|a\n-- End new --\n-- EOF --\n", "empty && *empty == \"# JText File - created x\\n-- new --\\n 1. |# 1|a\\n-- End new --\\n-- EOF --\\n\"");
+            "# JText File - created x\n# jText Version: 0.8\n-- new --\n-- End new --\n-- EOF --\n", "new", " 1. |# 1|a\n");
+        check(empty && *empty == "# JText File - created x\n# jText Version: 0.8\n-- new --\n 1. |# 1|a\n-- End new --\n-- EOF --\n", "empty && *empty == \"# JText File - created x\\n# jText Version: 0.8\\n-- new --\\n 1. |# 1|a\\n-- End new --\\n-- EOF --\\n\"");
 
         auto kind = [](const std::expected<std::string, jtext::file_error>& r) {
             return r ? std::string("ok") : std::string(jtext::to_string(r.error().kind));
@@ -716,6 +717,60 @@ int main() {
         check(text.find("# Purpose - \n# jText Version: 0.8\n# Case: ") != std::string::npos,
               "light header declares jText Version 0.8");
         check(jtext::parse_file_structure(text).has_value(), "the light file parses");
+    }
+
+    {
+        // The format version (SPEC 2.3): a reader warns when it is missing, older, newer
+        // or not a number; saving upgrades a missing or older one and never lowers a newer.
+        using jtext::version_status;
+        check(jtext::check_version("0.8") == version_status::current, "0.8 is current");
+        check(jtext::check_version(" 0.8.0 ") == version_status::current, "0.8.0 is current");
+        check(jtext::check_version("") == version_status::missing, "no version is missing");
+        check(jtext::check_version("0.6") == version_status::older, "0.6 is older");
+        check(jtext::check_version("0.10") == version_status::newer, "0.10 is newer (numbers, not text)");
+        check(jtext::check_version("1") == version_status::newer, "1 is newer");
+        check(jtext::check_version("0..8") == version_status::invalid, "0..8 is invalid");
+        check(jtext::check_version("v0.8") == version_status::invalid, "v0.8 is invalid");
+        check(jtext::version_warning("0.8").empty(), "no warning for the current version");
+        check(jtext::version_warning("0.6").find("upgrades it to 0.8") != std::string::npos,
+              "the older-version warning says saving upgrades it");
+
+        const std::string light =
+            "# JText File - created 2026-01-01\n# Purpose - p\n# Case: Sensitive\n\n"
+            "-- s --\n\n1. |# 1|a\n\n-- End s --\n-- EOF --\n";
+        auto pf = jtext::parse_file_structure(light);
+        check(pf && jtext::declared_version(*pf).empty(), "the old light file declares no version");
+        auto up = jtext::replace_section_data(light, "s", "1. |# 1|b\n");
+        check(up && up->find("# Purpose - p\n# jText Version: 0.8\n# Case: Sensitive\n") != std::string::npos,
+              "a light section save adds the version after Purpose");
+        pf = jtext::parse_file_structure(*up);
+        check(pf && jtext::declared_version(*pf) == "0.8", "the saved light file declares 0.8");
+
+        const std::string full_head = "=== jText File ===\n 2. |# 2026-01-01\n";
+        const std::string full_tail =
+            " 5. |# Sensitive\n\n=== Section: s ===\n=== Fields ===\n=== End Fields ===\n"
+            "=== Data ===\n1. |# 1|a\n=== End Data ===\n=== End Section ===\n=== End File ===\n";
+        up = jtext::replace_section_data(full_head + " 4. |# 0.6 # old\n" + full_tail, "s", "1. |# 1|b\n");
+        check(up && up->find(" 2. |# 2026-01-01\n 4. |# 0.8 # old\n 5. |# ") != std::string::npos,
+              "a full section save upgrades line 4, keeping its formatter and comment");
+        up = jtext::replace_section_data(full_head + full_tail, "s", "1. |# 1|b\n");
+        check(up && up->find(" 2. |# 2026-01-01\n 4. |# 0.8\n 5. |# ") != std::string::npos,
+              "a full section save adds a missing line 4 in its place");
+        up = jtext::replace_section_data(full_head + " 4. |# 0.9\n" + full_tail, "s", "1. |# 1|b\n");
+        check(up && up->find(" 4. |# 0.9\n") != std::string::npos, "a newer version is never lowered");
+
+        // JTextFile: the read notes the warning; its write declares 0.8, so the file is upgraded.
+        using namespace jText::v002;
+        const auto path = std::filesystem::temp_directory_path() / "jtext_version_test.jtext";
+        { std::ofstream fo(path); fo << light; }
+        JTextFile f;
+        check(f.read_full(path.string()).has_value(), "the old light file reads");
+        check(f.jtext_version.empty() && f.warnings.size() == 1, "its read warns once: no version");
+        check(f.write(path.string()).has_value(), "it writes back");
+        JTextFile g;
+        check(g.read_full(path.string()).has_value(), "the written file reads");
+        check(g.jtext_version == "0.8" && g.warnings.empty(), "the written file is 0.8, with no warning");
+        std::filesystem::remove(path);
     }
 
     {
