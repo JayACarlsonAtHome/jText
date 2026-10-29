@@ -840,6 +840,8 @@ CREATE TABLE workshop_tools_comments (
 
 A line is named by its record and the field it starts at (Section 3.2.1), so every comment goes back on its own line, and every comment line back where it stood. Tools that write a section to a database write its comments there, and tools that read a table back put each one in its place. A record's comments are found by its record id, which is one more reason to keep field 1 unique (Section 2.4.3).
 
+SQL text written for a database uses standard string literals: a `'` is doubled, and a backslash is an ordinary character. PostgreSQL and SQLite read them that way; MariaDB and MySQL do only in the `NO_BACKSLASH_ESCAPES` SQL mode, so such a file is loaded there with that mode set (for example `mariadb --init-command="SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES')"`).
+
 A table keeps names, types, lengths and `NOT NULL`, but not every jText declaration: `Not Empty`, a `NullDate(...)` other than the default, and auto designations do not survive a database round trip. Everything else does, values and comments included; the reference tools test that through the canonical XML export (`XML_EXPORT.md`).
 
 Values are stored as entered. A `'` in a field stays a `'`. A live insert or update binds that value with a prepared parameter. When a consumer writes SQL text, as the SQL Insert template does, each `'` in the raw value is doubled once, so `'` becomes `''` inside the SQL quotes. The jText file is not rewritten. Stored values are not passed through a loop that collapses `''` to `'`. A host other than that SQL text, such as VBA, receives the raw value and does its own quoting.

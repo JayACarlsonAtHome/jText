@@ -2,11 +2,13 @@
 
 ## jText ↔ SQL round trip: done
 
-`tool_round_trip_sqlite` and `tool_round_trip_postgres` take one fixture
-(`tools/tests/fixtures/roundtrip/`) through `jtext_xtox_sql` into each database and back
-through `jtext_from_sql` (libpq / SQLite, never a text dump), export the original and the
-copy as data-scope XML (`XML_EXPORT.md`), and compare the bytes. PostgreSQL works in a
-throwaway schema and is reported as skipped where no server answers.
+`tool_round_trip_sqlite`, `tool_round_trip_postgres` and `tool_round_trip_mariadb` take one
+fixture (`tools/tests/fixtures/roundtrip/`) through `jtext_xtox_sql` into each database and
+back through `jtext_from_sql` (libpq / SQLite / MariaDB Connector/C, never a text dump),
+export the original and the copy as data-scope XML (`XML_EXPORT.md`), and compare the bytes.
+PostgreSQL works in a throwaway schema, MariaDB in a throwaway database (the login needs
+`` GRANT ALL ON `jtext\_round\_trip\_%`.* ``); each is reported as skipped where no server
+answers. MariaDB loads the SQL with `NO_BACKSLASH_ESCAPES` (SPEC 4.3).
 
 What a database table cannot hold does not come back: `Not Empty`, a `NullDate(...)` other
 than the default, and auto designations (`Identity(1,1)`). Keeping them would need the
@@ -23,7 +25,7 @@ Every target reads and writes through a proper library or a fully defined format
 |---|---|
 | SQLite | done: `jtext_xtox_sql` / `jtext_from_sql --sqlite`, round-trip tested |
 | PostgreSQL | done: `jtext_xtox_sql` / `jtext_from_sql`, round-trip tested |
-| MariaDB | later: a third client-library backend (the editor already connects to MariaDB) |
+| MariaDB | done: `jtext_xtox_sql` / `jtext_from_sql --mariadb`, round-trip tested |
 | Excel on Linux | later: the editor already imports/exports `.xlsx`; LibreOffice Calc's own `.ods` is not written yet |
 | XML | export done (`XML_EXPORT.md`, `jtext_to_xml`): the compare standard for every round trip; import later |
 | HTML | later (jac313's Store writes HTML event logs; jText itself has no HTML export) |

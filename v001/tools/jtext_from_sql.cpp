@@ -1,6 +1,7 @@
 // File: tools/jtext_from_sql.cpp
 //
-// jtext_from_sql - a database table back into jText: PostgreSQL (libpq) or SQLite.
+// jtext_from_sql - a database table back into jText: PostgreSQL (libpq), SQLite, or
+// MariaDB / MySQL (Connector/C).
 // Generates the four jText component files in <data_path>/<base_name>/:
 //
 //   <base_name>.jschma   - CREATE TABLE IF NOT EXISTS, from the columns (SQL, -- header)
@@ -8,11 +9,12 @@
 //   <base_name>.jtinsrt  - the SQL Insert template
 //   <base_name>.jtext    - the table: header, fields, every row, every comment
 //
-//   jtext_from_sql [--sqlite <database>] <data_path> <base_name> <descriptor>
+//   jtext_from_sql [--sqlite <file> | --mariadb <database>] <data_path> <base_name> <descriptor>
 //
-// The descriptor holds a SELECT; the table is the name after its FROM. Without
-// --sqlite the tool connects to PostgreSQL through the standard environment
-// (PGHOST, PGDATABASE, PGUSER, PGPASSWORD, PGOPTIONS, ...), as psql does.
+// The descriptor holds a SELECT; the table is the name after its FROM. Without an
+// option the tool connects to PostgreSQL through the standard environment (PGHOST,
+// PGDATABASE, PGUSER, PGPASSWORD, PGOPTIONS, ...), as psql does. --mariadb connects
+// over the local socket as the current login, as the mariadb client does.
 //
 // Values come through the client library, each with its NULL flag: never through a
 // text dump to be split again (no CSV, no delimiters). A NULL is written as {NULL}, a
@@ -26,8 +28,7 @@
 #include "export/xml_export.hpp"   // jtext::located_comment
 #include "parser/section.hpp"      // jtext::kNullValue, kDefaultNullDate
 
-#include <libpq-fe.h>
-#include <sqlite3.h>
+#include "from_sql/source.hpp"   // the databases, one file each
 
 #include <algorithm>
 #include <cctype>
@@ -66,56 +67,8 @@ static std::string trim(const std::string& s) {
     return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
 }
 
-static std::string lower(std::string s) {
-    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-// ── The table, as either database describes it ────────────────
-
-struct Column {
-    std::string name;
-    std::string type;          // the jText type: String, Integer, Number, Date, DateTime, Bool
-    std::size_t length = 0;    // a String's declared length; 0: none
-    bool not_null = false;
-};
-
-// A database column type as the jText type it holds (SPEC 2.4.1), and a length when
-// the type carries one ("VARCHAR(80)"; PostgreSQL reports it separately).
-static Column column_of(std::string name, const std::string& sql_type, std::size_t length, bool not_null)
-{
-    const std::string t = lower(sql_type);
-    Column c{std::move(name), "String", length, not_null};
-    if (t.find("int") != std::string::npos || t.find("serial") != std::string::npos) c.type = "Integer";
-    else if (t.starts_with("timestamp") || t.find("datetime") != std::string::npos) c.type = "DateTime";
-    else if (t == "date") c.type = "Date";
-    else if (t.find("bool") != std::string::npos) c.type = "Bool";
-    else if (t.find("real") != std::string::npos || t.find("floa") != std::string::npos ||
-             t.find("doub") != std::string::npos || t.find("numeric") != std::string::npos ||
-             t.find("decimal") != std::string::npos) c.type = "Number";
-    if (c.type == "String" && c.length == 0) {
-        if (const auto open = t.find('('); open != std::string::npos)
-            std::from_chars(t.data() + open + 1, t.data() + t.size(), c.length);
-    }
-    if (c.type != "String") c.length = 0;
-    return c;
-}
-
-using Row = std::vector<std::string>;
-
-// One database, read through its client library.
-struct Source {
-    virtual ~Source() = default;
-    virtual std::string dialect() const = 0;
-    virtual std::optional<std::vector<Column>> columns(const std::string& table) = 0;
-    virtual std::optional<std::vector<Row>> rows(const std::string& table) = 0;
-    virtual std::optional<bool> has_table(const std::string& table) = 0;
-    virtual std::optional<std::vector<Row>> comment_rows(const std::string& table) = 0;
-    std::string error;
-};
-
-// The comments table's columns, in the order comment_of() reads them (SPEC 4.3).
-constexpr const char* kCommentColumns = "block, kind, record_id, position, seq, comment";
+using from_sql::Column;
+using from_sql::Row;
 
 static jtext::located_comment comment_of(const Row& r)
 {
@@ -128,166 +81,6 @@ static jtext::located_comment comment_of(const Row& r)
     c.text = r[5];
     return c;
 }
-
-class Postgres final : public Source {
-public:
-    Postgres() : conn_(PQconnectdb(""), PQfinish) {}
-    bool ok()
-    {
-        if (PQstatus(conn_.get()) == CONNECTION_OK) return true;
-        error = PQerrorMessage(conn_.get());
-        return false;
-    }
-    std::string dialect() const override { return "PostgreSQL"; }
-
-    std::optional<std::vector<Column>> columns(const std::string& table) override
-    {
-        auto r = query("SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable "
-                       "FROM information_schema.columns "
-                       "WHERE table_schema = current_schema() AND table_name = $1 "
-                       "ORDER BY ordinal_position", {table});
-        if (!r) return std::nullopt;
-        std::vector<Column> out;
-        for (const auto& row : *r) {
-            std::size_t len = 0;
-            std::from_chars(row[2].data(), row[2].data() + row[2].size(), len);
-            out.push_back(column_of(row[0], row[1], len, row[3] == "NO"));
-        }
-        return out;
-    }
-
-    std::optional<std::vector<Row>> rows(const std::string& table) override
-    {
-        return query(std::format("SELECT * FROM {} ORDER BY 1", ident(table)), {});
-    }
-
-    std::optional<bool> has_table(const std::string& table) override
-    {
-        auto r = query("SELECT 1 FROM information_schema.tables "
-                       "WHERE table_schema = current_schema() AND table_name = $1", {table});
-        if (!r) return std::nullopt;
-        return !r->empty();
-    }
-
-    std::optional<std::vector<Row>> comment_rows(const std::string& table) override
-    {
-        return query(std::format("SELECT {} FROM {} ORDER BY 1, 3, 4, 5", kCommentColumns, ident(table)), {});
-    }
-
-private:
-    std::unique_ptr<PGconn, decltype(&PQfinish)> conn_;
-
-    std::string ident(const std::string& name)
-    {
-        std::unique_ptr<char, decltype(&PQfreemem)> q(
-            PQescapeIdentifier(conn_.get(), name.c_str(), name.size()), PQfreemem);
-        return q ? std::string(q.get()) : std::string{};
-    }
-
-    // Each value as the server sends it in text form; a NULL as {NULL}.
-    std::optional<std::vector<Row>> query(const std::string& sql, const std::vector<std::string>& params)
-    {
-        std::vector<const char*> p;
-        for (const auto& s : params) p.push_back(s.c_str());
-        std::unique_ptr<PGresult, decltype(&PQclear)> res(
-            PQexecParams(conn_.get(), sql.c_str(), static_cast<int>(p.size()), nullptr, p.data(),
-                         nullptr, nullptr, 0),
-            PQclear);
-        if (PQresultStatus(res.get()) != PGRES_TUPLES_OK) {
-            error = PQerrorMessage(conn_.get());
-            return std::nullopt;
-        }
-        std::vector<Row> out;
-        for (int r = 0; r < PQntuples(res.get()); ++r) {
-            Row row;
-            for (int c = 0; c < PQnfields(res.get()); ++c)
-                row.push_back(PQgetisnull(res.get(), r, c)
-                                  ? std::string{jtext::kNullValue}
-                                  : std::string(PQgetvalue(res.get(), r, c),
-                                                static_cast<std::size_t>(PQgetlength(res.get(), r, c))));
-            out.push_back(std::move(row));
-        }
-        return out;
-    }
-};
-
-class Sqlite final : public Source {
-public:
-    explicit Sqlite(const std::string& path) : db_(nullptr, sqlite3_close)
-    {
-        sqlite3* db = nullptr;
-        rc_ = sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
-        db_.reset(db);
-        if (rc_ != SQLITE_OK) error = db ? sqlite3_errmsg(db) : "cannot open the database";
-    }
-    bool ok() const { return rc_ == SQLITE_OK; }
-    std::string dialect() const override { return "SQLite"; }
-
-    std::optional<std::vector<Column>> columns(const std::string& table) override
-    {
-        auto r = query("SELECT name, type, \"notnull\", pk FROM pragma_table_info(?1)", {table});
-        if (!r) return std::nullopt;
-        std::vector<Column> out;
-        // A primary key holds a value in every row, as PostgreSQL reports it (not null).
-        for (const auto& row : *r) out.push_back(column_of(row[0], row[1], 0, row[2] == "1" || row[3] != "0"));
-        return out;
-    }
-
-    std::optional<std::vector<Row>> rows(const std::string& table) override
-    {
-        return query(std::format("SELECT * FROM \"{}\" ORDER BY 1", table), {});
-    }
-
-    std::optional<bool> has_table(const std::string& table) override
-    {
-        auto r = query("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1", {table});
-        if (!r) return std::nullopt;
-        return !r->empty();
-    }
-
-    std::optional<std::vector<Row>> comment_rows(const std::string& table) override
-    {
-        return query(std::format("SELECT {} FROM \"{}\" ORDER BY 1, 3, 4, 5", kCommentColumns, table), {});
-    }
-
-private:
-    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> db_;
-    int rc_ = SQLITE_OK;
-
-    // Each value as SQLite's text for it; a NULL as {NULL}. Only safe identifiers go
-    // into the SQL text; values are bound.
-    std::optional<std::vector<Row>> query(const std::string& sql, const std::vector<std::string>& params)
-    {
-        sqlite3_stmt* raw = nullptr;
-        if (sqlite3_prepare_v2(db_.get(), sql.c_str(), -1, &raw, nullptr) != SQLITE_OK) {
-            error = sqlite3_errmsg(db_.get());
-            return std::nullopt;
-        }
-        std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> st(raw, sqlite3_finalize);
-        for (std::size_t i = 0; i < params.size(); ++i)
-            sqlite3_bind_text(st.get(), static_cast<int>(i + 1), params[i].c_str(),
-                              static_cast<int>(params[i].size()), SQLITE_TRANSIENT);
-        std::vector<Row> out;
-        int step = 0;
-        while ((step = sqlite3_step(st.get())) == SQLITE_ROW) {
-            Row row;
-            for (int c = 0; c < sqlite3_column_count(st.get()); ++c) {
-                if (sqlite3_column_type(st.get(), c) == SQLITE_NULL) {
-                    row.emplace_back(jtext::kNullValue);
-                    continue;
-                }
-                const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(st.get(), c));
-                row.emplace_back(text, static_cast<std::size_t>(sqlite3_column_bytes(st.get(), c)));
-            }
-            out.push_back(std::move(row));
-        }
-        if (step != SQLITE_DONE) {
-            error = sqlite3_errmsg(db_.get());
-            return std::nullopt;
-        }
-        return out;
-    }
-};
 
 // ── jText out ─────────────────────────────────────────────────
 
@@ -390,13 +183,16 @@ static void write_table(std::ostream& out, const std::string& base, const std::s
 
 int main(int argc, char** argv) {
     std::vector<std::string> args(argv + 1, argv + argc);
-    std::string sqlite_path;
-    if (args.size() >= 2 && args[0] == "--sqlite") {
-        sqlite_path = args[1];
+    std::string backend = "postgres";
+    std::string where;   // the SQLite file, or the MariaDB database
+    if (args.size() >= 2 && (args[0] == "--sqlite" || args[0] == "--mariadb")) {
+        backend = args[0].substr(2);
+        where = args[1];
         args.erase(args.begin(), args.begin() + 2);
     }
     if (args.size() != 3) {
-        std::cerr << "Usage: jtext_from_sql [--sqlite <database>] <data_path> <base_name> <descriptor_file>\n";
+        std::cerr << "Usage: jtext_from_sql [--sqlite <file> | --mariadb <database>] "
+                     "<data_path> <base_name> <descriptor_file>\n";
         std::cerr << "Example: jtext_from_sql ./samples workshop_tools_from_db descriptor.sql\n";
         return 1;
     }
@@ -449,22 +245,14 @@ int main(int argc, char** argv) {
 
     // 3. Connect, and read the table: columns, rows, comments. Nothing is written
     // unless all of it was read.
-    std::unique_ptr<Source> db;
-    if (sqlite_path.empty()) {
-        auto pg = std::make_unique<Postgres>();
-        if (!pg->ok()) {
-            std::cerr << "ERROR: PostgreSQL: " << pg->error << "nothing was written.\n";
-            return 6;
-        }
-        db = std::move(pg);
-    } else {
-        auto lite = std::make_unique<Sqlite>(sqlite_path);
-        if (!lite->ok()) {
-            std::cerr << "ERROR: SQLite: " << sqlite_path << ": " << lite->error
-                      << "\nnothing was written.\n";
-            return 6;
-        }
-        db = std::move(lite);
+    std::string error;
+    std::unique_ptr<from_sql::Source> db = backend == "sqlite"  ? from_sql::open_sqlite(where, error)
+                                         : backend == "mariadb" ? from_sql::open_mariadb(where, error)
+                                                                : from_sql::open_postgres(error);
+    if (!db) {
+        std::cerr << "ERROR: " << backend << (where.empty() ? "" : " " + where) << ": " << error
+                  << (error.ends_with('\n') ? "" : "\n") << "nothing was written.\n";
+        return 6;
     }
     std::cout << "Retrieving table " << table_name << " from " << db->dialect() << "\n";
 

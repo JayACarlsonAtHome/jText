@@ -32,18 +32,38 @@ if(JTEXT_BUILD_TOOLS)
     target_compile_features(jtext_to_xml PRIVATE cxx_std_26)
     set_target_properties(jtext_to_xml PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 
-    # jtext_from_sql reads through the client libraries (never a text dump), so it is
-    # built only where both are installed (libpq-devel, sqlite-devel).
+    # jtext_from_sql reads each database through its client library (never a text dump).
+    # A backend whose library is installed is built from from_sql/<db>.cpp; one whose
+    # library is missing from from_sql/<db>_none.cpp, which says so when asked.
+    add_executable(jtext_from_sql jtext_from_sql.cpp)
+    target_include_directories(jtext_from_sql PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(jtext_from_sql PRIVATE jText::jText)
+    target_compile_features(jtext_from_sql PRIVATE cxx_std_26)
+    set_target_properties(jtext_from_sql PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     find_package(PostgreSQL QUIET)
     find_package(SQLite3 QUIET)
-    if(TARGET PostgreSQL::PostgreSQL AND TARGET SQLite::SQLite3)
-        add_executable(jtext_from_sql jtext_from_sql.cpp)
-        target_link_libraries(jtext_from_sql PRIVATE jText::jText PostgreSQL::PostgreSQL SQLite::SQLite3)
-        target_compile_features(jtext_from_sql PRIVATE cxx_std_26)
-        set_target_properties(jtext_from_sql PROPERTIES CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-    else()
-        message(WARNING "jtext_from_sql not built: it needs libpq and SQLite3 (libpq-devel, sqlite-devel)")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(JTEXT_MARIADB QUIET IMPORTED_TARGET libmariadb)
     endif()
+    set(JTEXT_FROM_SQL_BACKENDS "")
+    foreach(db postgres sqlite mariadb)
+        if(db STREQUAL "postgres")
+            set(lib PostgreSQL::PostgreSQL)
+        elseif(db STREQUAL "sqlite")
+            set(lib SQLite::SQLite3)
+        else()
+            set(lib PkgConfig::JTEXT_MARIADB)
+        endif()
+        if(TARGET ${lib})
+            target_sources(jtext_from_sql PRIVATE from_sql/${db}.cpp)
+            target_link_libraries(jtext_from_sql PRIVATE ${lib})
+            list(APPEND JTEXT_FROM_SQL_BACKENDS ${db})
+        else()
+            target_sources(jtext_from_sql PRIVATE from_sql/${db}_none.cpp)
+        endif()
+    endforeach()
+    message(STATUS "jtext_from_sql backends: ${JTEXT_FROM_SQL_BACKENDS}")
 
     # Independent tests for the tools (registered only when tests are enabled).
     # - xtox_sql: a real functional run against the bundled workshop_tools fixture.
@@ -63,13 +83,11 @@ if(JTEXT_BUILD_TOOLS)
                 -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_close.cmake)
 
-        if(TARGET jtext_from_sql)
-            add_test(NAME tool_jtext_from_sql_args
-                COMMAND ${CMAKE_COMMAND}
-                    -DTOOL=$<TARGET_FILE:jtext_from_sql>
-                    -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_args.cmake)
-        endif()
+        add_test(NAME tool_jtext_from_sql_args
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOL=$<TARGET_FILE:jtext_from_sql>
+                -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_args.cmake)
 
         # Hardening regression tests.
         add_test(NAME tool_jtext_xtox_sql_escaping
@@ -79,36 +97,35 @@ if(JTEXT_BUILD_TOOLS)
                 -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_xtox_escape.cmake)
 
-        # Round trips through SQLite and PostgreSQL, compared through the canonical XML
-        # export. PostgreSQL is reported as skipped (exit 77) where no server answers.
+        # Round trips through each database, compared through the canonical XML export.
+        # A server that does not answer is reported as skipped (exit 77), never passed.
         find_program(JTEXT_SQLITE3 sqlite3)
         find_program(JTEXT_PSQL psql)
-        if(TARGET jtext_from_sql AND JTEXT_SQLITE3)
-            add_test(NAME tool_round_trip_sqlite
-                COMMAND ${CMAKE_COMMAND} -DDB=sqlite
-                    -DXTOX=$<TARGET_FILE:jtext_xtox_sql> -DFROMSQL=$<TARGET_FILE:jtext_from_sql>
-                    -DTOXML=$<TARGET_FILE:jtext_to_xml> -DSQLITE3=${JTEXT_SQLITE3}
-                    -DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures
-                    -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_round_trip.cmake)
-        endif()
-        if(TARGET jtext_from_sql AND JTEXT_PSQL)
-            add_test(NAME tool_round_trip_postgres
-                COMMAND ${CMAKE_COMMAND} -DDB=postgres
-                    -DXTOX=$<TARGET_FILE:jtext_xtox_sql> -DFROMSQL=$<TARGET_FILE:jtext_from_sql>
-                    -DTOXML=$<TARGET_FILE:jtext_to_xml> -DPSQL=${JTEXT_PSQL}
-                    -DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures
-                    -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_round_trip.cmake)
-            set_tests_properties(tool_round_trip_postgres PROPERTIES SKIP_RETURN_CODE 77)
-        endif()
+        find_program(JTEXT_MARIADB_CLIENT mariadb)
+        foreach(db sqlite postgres mariadb)
+            if(db STREQUAL "sqlite")
+                set(client ${JTEXT_SQLITE3})
+            elseif(db STREQUAL "postgres")
+                set(client ${JTEXT_PSQL})
+            else()
+                set(client ${JTEXT_MARIADB_CLIENT})
+            endif()
+            if(db IN_LIST JTEXT_FROM_SQL_BACKENDS AND client)
+                add_test(NAME tool_round_trip_${db}
+                    COMMAND ${CMAKE_COMMAND} -DDB=${db} -DCLIENT=${client}
+                        -DXTOX=$<TARGET_FILE:jtext_xtox_sql> -DFROMSQL=$<TARGET_FILE:jtext_from_sql>
+                        -DTOXML=$<TARGET_FILE:jtext_to_xml>
+                        -DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures
+                        -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_round_trip.cmake)
+                set_tests_properties(tool_round_trip_${db} PROPERTIES SKIP_RETURN_CODE 77)
+            endif()
+        endforeach()
 
-        if(TARGET jtext_from_sql)
-            add_test(NAME tool_jtext_from_sql_injection
-                COMMAND ${CMAKE_COMMAND}
-                    -DTOOL=$<TARGET_FILE:jtext_from_sql>
-                    -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_injection.cmake)
-        endif()
+        add_test(NAME tool_jtext_from_sql_injection
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOL=$<TARGET_FILE:jtext_from_sql>
+                -DOUTDIR=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_from_sql_injection.cmake)
     endif()
 endif()
