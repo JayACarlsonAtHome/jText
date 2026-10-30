@@ -1,6 +1,6 @@
 #include <jText/v002.hpp>
 
-static_assert(jText::v002::version() == "v002.028", "v002 version");
+static_assert(jText::v002::version() == "v002.029", "v002 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -130,6 +130,26 @@ int main() {
         check(!w.last_record_id().has_value(), "!w.last_record_id().has_value()");
         // A field given no value is written as the text {NULL} (SPEC 2.6.1).
         check(o.str().find("2. |\xE2\x96\x8C {NULL}\n") != std::string::npos, "a field given no value is written as {NULL}");
+    }
+    {
+        // A comment is one line: a row whose comment holds a line break is a bad row,
+        // reported and left out under BadRowPolicy::Skip (it would read back as two lines).
+        std::ostringstream o;
+        JTextWriter w(o);
+        w.set_bad_row_policy(jText::v002::BadRowPolicy::Skip);
+        w.write_header();
+        w.begin_section("C");
+        w.append_row(1, {std::string("1"), "kept"}, "one line");
+        w.append_row(1, {std::string("2"), "dropped"}, "two\nlines");
+        JTextEntry e;
+        e.number = 1;
+        e.fields = {std::string("3"), std::string("also dropped")};
+        e.comment = "ends in a return\r";
+        w.append_entry(e);
+        w.finalize();
+        check(w.skipped_rows() == 2, "a comment with a line break is a skipped row");
+        check(o.str().find("dropped") == std::string::npos, "the rows with such comments are left out");
+        check(o.str().find("kept") != std::string::npos, "the row with a one-line comment is written");
     }
 
     {

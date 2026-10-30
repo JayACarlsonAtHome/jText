@@ -59,7 +59,9 @@ static auto load_file(const fs::path& path) -> std::string
 // Quote a value as a SQL string literal, escaping embedded single quotes by
 // doubling them (standard SQL). Other bytes — including newlines and
 // backslashes — are emitted verbatim, which is correct for SQL standard string
-// literals (standard_conforming_strings). This is the single choke point for
+// literals (standard_conforming_strings). MariaDB reads a backslash as an escape
+// unless NO_BACKSLASH_ESCAPES is on, so the file's header turns it on there (an
+// executable comment only MariaDB runs). This is the single choke point for
 // turning untrusted text into a safe quoted literal.
 static auto sql_string_literal(const std::string& v) -> std::string
 {
@@ -128,25 +130,37 @@ static auto sql_literal(const jtext::field& f, const std::string& val) -> std::s
 
 // Substitute {1}..{N} in the template body with correctly quoted literals.
 // Field types come from the validated section schema; value position i maps to
-// field i (1-based via {i+1}).
+// field i (1-based via {i+1}). One pass over the template: a literal already
+// written is never scanned again, so a value holding "{2}" stays the text {2}
+// inside its quotes instead of taking the next value (and its quotes) in.
 static auto substitute_record(const std::string& tmpl,
                               const jtext::record& rec,
                               const std::vector<jtext::field>& fields) -> std::string
 {
-    std::string out = tmpl;
+    static const jtext::field kStringField{};   // past the declared fields: String quoting (safe)
+    std::string out;
+    out.reserve(tmpl.size() + 64);
 
-    for (std::size_t i = 0; i < rec.values.size(); ++i) {
-        static const jtext::field kStringField{};   // past the declared fields: String quoting (safe)
-        const jtext::field& f = i < fields.size() ? fields[i] : kStringField;
-        std::string placeholder = "{" + std::to_string(i + 1) + "}";
-        std::string replacement = sql_literal(f, rec.values[i]);
-
-        std::string::size_type pos = 0;
-        while ((pos = out.find(placeholder, pos)) != std::string::npos) {
-            out.replace(pos, placeholder.length(), replacement);
-            pos += replacement.length();
+    std::size_t pos = 0;
+    while (pos < tmpl.size()) {
+        const auto open = tmpl.find('{', pos);
+        if (open == std::string::npos) break;
+        out.append(tmpl, pos, open - pos);
+        const auto close = tmpl.find('}', open + 1);
+        std::size_t n = 0;
+        const bool placeholder = close != std::string::npos && close > open + 1 &&
+            std::from_chars(tmpl.data() + open + 1, tmpl.data() + close, n).ptr == tmpl.data() + close &&
+            n >= 1 && n <= rec.values.size();
+        if (!placeholder) {              // not {N}, or past this record's values: kept as written
+            out += '{';
+            pos = open + 1;
+            continue;
         }
+        const jtext::field& f = n - 1 < fields.size() ? fields[n - 1] : kStringField;
+        out += sql_literal(f, rec.values[n - 1]);
+        pos = close + 1;
     }
+    out.append(tmpl, pos, std::string::npos);
     return out;
 }
 
@@ -216,6 +230,9 @@ int main(int argc, char** argv)
     output_sql += "-- Generated from " + std::string(base) + ".jtFull\n";
     output_sql += "-- by jtext_xtox_sql\n";
     output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n";
+    // String literals are standard SQL (a quote is doubled, a backslash is a backslash).
+    // MariaDB alone runs this comment: it stops reading backslashes as escapes.
+    output_sql += "/*M! SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES') */;\n";
 
     // Each section is one table (SPEC 2.3), with its own templates: "Create Table" once,
     // "SQL Insert" per record, and its comments in <table>_comments (SPEC 4.3).

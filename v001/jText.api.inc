@@ -8,7 +8,7 @@
 // Package version, "major.minor": major = the v001 API line, minor = the revision. Bump on
 // each small code change (edit the minor); v001 stays until a real (breaking) change, then
 // this becomes "v001.001". Enforced by `jac313_test_cli version-check` (pre-push).
-[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.028"; }
+[[nodiscard]] constexpr std::string_view version() noexcept { return "v001.029"; }
 
 enum class CaseMode { Insensitive, Sensitive };
 
@@ -242,8 +242,11 @@ private:
     void flush_pending_batch();   // internal helper
     // Write already-formatted lines (a multiline record), batched like any row.
     void write_lines(std::string text);
-    // Report a bad row, then leave it out (Skip) or end the process (Terminate).
+    // Report a bad row (a field holding the separator, or a comment holding a line
+    // break), then leave it out (Skip) or end the process (Terminate).
     void reject_row(std::size_t field, char32_t sep, std::string_view value);
+    void reject_comment(std::string_view comment);
+    void reject(std::string_view why, std::string_view value, std::string_view fix);
     // Field-1 entry with no id: fill one in `scratch` and return it; otherwise
     // note the id it carries and return `entry` unchanged.
     const JTextEntry& resolve_record_id(const JTextEntry& entry, JTextEntry& scratch);

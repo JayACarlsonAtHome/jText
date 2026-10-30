@@ -27,4 +27,14 @@ if(sql MATCHES "'O'Reilly")
     message(FATAL_ERROR "found UNescaped single quote in output:\n${sql}")
 endif()
 
-message(STATUS "jtext_xtox_sql SQL-escaping OK")
+# A value that looks like a placeholder stays text inside its literal: the old
+# pass-per-placeholder substitution put value 3 (and its quotes) inside value 2.
+if(NOT sql MATCHES "VALUES .2, 'a {3} b', 'back\\\\slash'.")
+    message(FATAL_ERROR "a value holding {3} was substituted again; emitted SQL:\n${sql}")
+endif()
+# A backslash is written as itself; MariaDB alone runs the sql_mode line that makes it one.
+if(NOT sql MATCHES "/\\*M! SET SESSION sql_mode = CONCAT\\(@@sql_mode, ',NO_BACKSLASH_ESCAPES'\\) \\*/;")
+    message(FATAL_ERROR "the MariaDB NO_BACKSLASH_ESCAPES line is missing; emitted SQL:\n${sql}")
+endif()
+
+message(STATUS "jtext_xtox_sql SQL-escaping OK (quotes, {N} in a value, backslash)")

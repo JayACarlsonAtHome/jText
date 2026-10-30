@@ -214,8 +214,17 @@ public:
     class Statement {
     public:
         Statement(Sqlite& db, const std::string& sql) {
-            if (sqlite3_prepare_v2(db.db_, sql.c_str(), -1, &stmt_, nullptr) != SQLITE_OK) {
+            const char* tail = nullptr;
+            if (sqlite3_prepare_v2(db.db_, sql.c_str(), -1, &stmt_, &tail) != SQLITE_OK) {
                 throw SqliteError("Failed to prepare: " + sql + " - " + sqlite3_errmsg(db.db_));
+            }
+            // SQLite prepares the first statement and hands back the rest, which would never
+            // run. exec() takes several statements; a Statement takes one.
+            for (const char* p = tail; p && *p; ++p) {
+                if (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == ';') continue;
+                sqlite3_finalize(stmt_);
+                stmt_ = nullptr;
+                throw SqliteError("Failed to prepare: more than one statement in: " + sql);
             }
         }
 
@@ -240,8 +249,9 @@ public:
         // Variadic positional bind: resets + clears, then binds from index 1.
         template<typename... Args>
         void bind(Args&&... args) {
-            // More values than placeholders: SQLite would drop the rest (SQLITE_RANGE, unchecked).
-            QLITE_PRE(static_cast<int>(sizeof...(Args)) <= sqlite3_bind_parameter_count(stmt_));
+            // One value per placeholder: SQLite would drop extra values (SQLITE_RANGE, unchecked)
+            // and bind NULL for the missing ones without a word.
+            QLITE_PRE(static_cast<int>(sizeof...(Args)) == sqlite3_bind_parameter_count(stmt_));
             sqlite3_reset(stmt_);
             sqlite3_clear_bindings(stmt_);
             bind_impl(1, std::forward<Args>(args)...);

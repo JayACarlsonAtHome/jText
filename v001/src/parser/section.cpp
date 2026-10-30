@@ -902,6 +902,13 @@ auto build_from_lines(const std::vector<std::string>& lines)
 //  Public entry points
 // ──────────────────────────────────────────────────────────────
 
+// A leading UTF-8 byte-order mark is skipped (SPEC: readers must), so a file an
+// editor round-tripped still opens; nothing else in the file may carry one.
+static void strip_bom(std::vector<std::string>& lines)
+{
+    if (!lines.empty() && lines[0].starts_with("\xEF\xBB\xBF")) lines[0].erase(0, 3);
+}
+
 auto parse_file_structure(std::istream& in)
     -> std::expected<parsed_file, file_error>
 {
@@ -918,6 +925,7 @@ auto parse_file_structure(std::istream& in)
     if (in.bad()) {
         return err(file_error_kind::io_error, lines.size(), "I/O error during read");
     }
+    strip_bom(lines);
     return build_from_lines(lines);
 }
 
@@ -937,6 +945,7 @@ auto parse_file_structure(std::string_view text)
     if (start < text.size()) {
         lines.emplace_back(text.substr(start));
     }
+    strip_bom(lines);
     return build_from_lines(lines);
 }
 

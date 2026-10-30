@@ -55,6 +55,7 @@ public:
     MariaDB& operator=(const MariaDB&) = delete;
     MariaDB(MariaDB&& o) noexcept : conn_(o.conn_), changes_(o.changes_), cache_(std::move(o.cache_)) {
         o.conn_ = nullptr;
+        adopt_cache();
     }
     MariaDB& operator=(MariaDB&& o) noexcept {
         if (this != &o) {
@@ -64,6 +65,7 @@ public:
             changes_ = o.changes_;
             cache_ = std::move(o.cache_);
             o.conn_ = nullptr;
+            adopt_cache();
         }
         return *this;
     }
@@ -87,6 +89,8 @@ public:
 
     class Statement {
     public:
+        friend class MariaDB;   // the connection re-points db_ when it moves
+
         Statement(MariaDB& db, const std::string& sql) : db_(&db), stmt_(mysql_stmt_init(db.conn_)) {
             if (!stmt_) db.fail("Failed to prepare: " + sql);
             if (mysql_stmt_prepare(stmt_, sql.data(), sql.size()) != 0) {
@@ -116,7 +120,10 @@ public:
         Statement(Statement&& o) noexcept
             : db_(o.db_), stmt_(o.stmt_), names_(std::move(o.names_)), types_(std::move(o.types_)),
               unsigned_(std::move(o.unsigned_)), params_(std::move(o.params_)), executed_(o.executed_),
-              on_row_(o.on_row_), cells_(std::move(o.cells_)) {
+              on_row_(o.on_row_), out_(std::move(o.out_)), out_len_(std::move(o.out_len_)),
+              out_null_(std::move(o.out_null_)), out_text_(std::move(o.out_text_)),
+              out_int_(std::move(o.out_int_)), out_double_(std::move(o.out_double_)),
+              cells_(std::move(o.cells_)) {
             o.stmt_ = nullptr;
         }
         Statement& operator=(Statement&& o) noexcept {
@@ -130,6 +137,12 @@ public:
                 params_ = std::move(o.params_);
                 executed_ = o.executed_;
                 on_row_ = o.on_row_;
+                out_ = std::move(o.out_);
+                out_len_ = std::move(o.out_len_);
+                out_null_ = std::move(o.out_null_);
+                out_text_ = std::move(o.out_text_);
+                out_int_ = std::move(o.out_int_);
+                out_double_ = std::move(o.out_double_);
                 cells_ = std::move(o.cells_);
                 o.stmt_ = nullptr;
             }
@@ -414,5 +427,11 @@ private:
 
     MYSQL* conn_ = nullptr;
     std::int64_t changes_ = 0;
+    // The cached statements point back at their connection. After a move they must point
+    // here, not at the moved-from object (it writes changes_ into a dead one).
+    void adopt_cache() noexcept {
+        for (auto& [sql, st] : cache_) st.db_ = this;
+    }
+
     std::unordered_map<std::string, Statement> cache_;
 };

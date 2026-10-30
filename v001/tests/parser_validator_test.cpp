@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -188,8 +189,45 @@ bool clean(const std::optional<jtext::validate_result>& vr) {
 
 }  // namespace
 
+// A leading UTF-8 byte-order mark is skipped (SPEC: readers must), from text and
+// from a stream alike, so a file an editor round-tripped still opens.
+void test_bom() {
+    const std::string doc =
+        "\xEF\xBB\xBF=== jText File ===\n"
+        " 1. #?# bom_test\n"
+        " 2. #?# 2026-10-30\n"
+        " 3. #?# a file with a byte-order mark\n"
+        "\n"
+        "=== Section: D ===\n"
+        "\n"
+        "=== Fields ===\n"
+        " 1. #/# id/Number/Not Null\n"
+        " 2. #/# name/String/Not Null\n"
+        "\n"
+        "=== End Fields ===\n"
+        "=== Data ===\n"
+        " 1. #?# 1\n"
+        " 2. #?# one\n"
+        "\n"
+        "=== End Data ===\n"
+        "=== End Section ===\n"
+        "=== End File ===\n";
+    auto from_text = jtext::parse_file_structure(doc);
+    if (!from_text.has_value() || from_text->sections.size() != 1) {
+        std::cerr << "FAIL[bom-text]: a file with a UTF-8 BOM was not read\n";
+        ++failures;
+    }
+    std::istringstream in(doc);
+    auto from_stream = jtext::parse_file_structure(in);
+    if (!from_stream.has_value() || from_stream->sections.size() != 1) {
+        std::cerr << "FAIL[bom-stream]: a stream with a UTF-8 BOM was not read\n";
+        ++failures;
+    }
+}
+
 int main() {
     using K = jtext::parse_error_kind;
+    test_bom();
 
     // --- line numbers ---
     expect_err("0. #?# x",   K::invalid_line_number, "line-number-zero");

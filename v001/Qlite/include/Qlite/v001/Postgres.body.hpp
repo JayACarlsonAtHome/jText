@@ -42,6 +42,7 @@ public:
     Postgres(Postgres&& o) noexcept
         : conn_(o.conn_), changes_(o.changes_), next_statement_(o.next_statement_), cache_(std::move(o.cache_)) {
         o.conn_ = nullptr;
+        adopt_cache();
     }
     Postgres& operator=(Postgres&& o) noexcept {
         if (this != &o) {
@@ -52,6 +53,7 @@ public:
             next_statement_ = o.next_statement_;
             cache_ = std::move(o.cache_);
             o.conn_ = nullptr;
+            adopt_cache();
         }
         return *this;
     }
@@ -71,6 +73,8 @@ public:
 
     class Statement {
     public:
+        friend class Postgres;   // the connection re-points db_ when it moves
+
         Statement(Postgres& db, const std::string& sql)
             : db_(&db), name_("qlite_" + std::to_string(++db.next_statement_)) {
             Result r(PQprepare(db.conn_, name_.c_str(), sql.c_str(), 0, nullptr));
@@ -297,5 +301,12 @@ private:
     PGconn* conn_ = nullptr;
     std::int64_t changes_ = 0;
     unsigned next_statement_ = 0;
+    // The cached statements point back at their connection. After a move they must point
+    // here, not at the moved-from object: PQexecPrepared on its null connection, and
+    // DEALLOCATE on a dead one.
+    void adopt_cache() noexcept {
+        for (auto& [sql, st] : cache_) st.db_ = this;
+    }
+
     std::unordered_map<std::string, Statement> cache_;
 };

@@ -34,7 +34,18 @@ inline Column column_of(std::string name, const std::string& sql_type, std::size
     std::string t = sql_type;
     for (auto& ch : t) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     Column c{std::move(name), "String", length, not_null};
-    if (t.find("int") != std::string::npos || t.find("serial") != std::string::npos) c.type = "Integer";
+    // The leading type word ("int(11) unsigned" -> "int"), matched whole: a substring test
+    // took PostgreSQL's interval, and point, for integers.
+    const std::string word = t.substr(0, t.find_first_of(" ("));
+    static constexpr const char* kIntegerWords[] = {
+        "int", "integer", "smallint", "bigint", "tinyint", "mediumint", "int2", "int4", "int8",
+        "serial", "smallserial", "bigserial", "serial2", "serial4", "serial8"};
+    const auto integer_word = [&] {
+        for (const char* w : kIntegerWords)
+            if (word == w) return true;
+        return false;
+    };
+    if (integer_word()) c.type = "Integer";
     else if (t.starts_with("timestamp") || t.find("datetime") != std::string::npos) c.type = "DateTime";
     else if (t == "date") c.type = "Date";
     else if (t.find("bool") != std::string::npos) c.type = "Bool";

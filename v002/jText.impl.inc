@@ -606,16 +606,20 @@ struct RowFormat {
     char32_t sep = kDefaultSplice;
     char32_t bookend = kDefaultComment;
     std::size_t bad_field = 0;
+    bool bad_comment = false;   // the comment holds a line break: a comment is one line
     bool multiline = false;     // a field holds a newline: format_multiline_record
 };
 
 template <class Fields>
-static RowFormat row_format(char32_t requested_bookend, char32_t level_sep, const Fields& fields, bool has_comment)
+static RowFormat row_format(char32_t requested_bookend, char32_t level_sep, const Fields& fields,
+                            std::string_view comment)
 {
+    const bool has_comment = !comment.empty();
     const char32_t sep = level_sep != 0 ? level_sep : kDefaultSplice;
     const RowScan scan = scan_row(fields, sep);
     RowFormat f;
     f.sep = sep;
+    f.bad_comment = comment.find_first_of("\r\n") != std::string_view::npos;
     if (scan.sep_field) {
         if (level_sep != 0) {
             f.bad_field = scan.sep_field;
@@ -1029,7 +1033,7 @@ void JTextWriter::write_full_header_line(std::size_t number, std::string_view va
     const auto c = header_comments_.find(number);
     const std::string comment = c == header_comments_.end() ? std::string{} : c->second;
     const std::vector<std::string> fields{std::string(value)};
-    const RowFormat fmt = row_format(0, 0, fields, !comment.empty());
+    const RowFormat fmt = row_format(0, 0, fields, comment);
     *out_ << format_row(number, fields, comment, 2, fmt.sep, fmt.bookend);
 }
 
@@ -1150,9 +1154,13 @@ void JTextWriter::append_entry(const JTextEntry& entry)
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
-    const RowFormat fmt = row_format(entry.delimiter, entry.level_sep, entry.fields, !entry.comment.empty());
+    const RowFormat fmt = row_format(entry.delimiter, entry.level_sep, entry.fields, entry.comment);
     if (fmt.bad_field) {
         reject_row(fmt.bad_field, fmt.sep, field_text(entry.fields[fmt.bad_field - 1]));
+        return;
+    }
+    if (fmt.bad_comment) {
+        reject_comment(entry.comment);
         return;
     }
 
@@ -1185,16 +1193,24 @@ void JTextWriter::append_entries(std::span<const JTextEntry> entries)
     std::vector<RowFormat> formats;
     formats.reserve(entries.size());
     for (const auto& entry : entries) {
-        formats.push_back(row_format(entry.delimiter, entry.level_sep, entry.fields, !entry.comment.empty()));
+        formats.push_back(row_format(entry.delimiter, entry.level_sep, entry.fields, entry.comment));
         const auto& f = formats.back();
-        if (f.bad_field && bad_row_policy_ == BadRowPolicy::Terminate)
-            reject_row(f.bad_field, f.sep, field_text(entry.fields[f.bad_field - 1]));
+        if (bad_row_policy_ == BadRowPolicy::Terminate) {
+            if (f.bad_field) reject_row(f.bad_field, f.sep, field_text(entry.fields[f.bad_field - 1]));
+            if (f.bad_comment) reject_comment(entry.comment);
+        }
     }
     const auto keep = [&](std::size_t n) {
         const auto& f = formats[n];
-        if (!f.bad_field) return true;
-        reject_row(f.bad_field, f.sep, field_text(entries[n].fields[f.bad_field - 1]));
-        return false;
+        if (f.bad_field) {
+            reject_row(f.bad_field, f.sep, field_text(entries[n].fields[f.bad_field - 1]));
+            return false;
+        }
+        if (f.bad_comment) {
+            reject_comment(entries[n].comment);
+            return false;
+        }
+        return true;
     };
 
     JTextEntry scratch;
@@ -1241,9 +1257,13 @@ void JTextWriter::append_row(std::size_t number,
     ensure_header();
     ensure_not_finalized();
     if (!out_) return;
-    const RowFormat fmt = row_format(0, level_sep, fields, !comment.empty());
+    const RowFormat fmt = row_format(0, level_sep, fields, comment);
     if (fmt.bad_field) {
         reject_row(fmt.bad_field, fmt.sep, fields[fmt.bad_field - 1]);
+        return;
+    }
+    if (fmt.bad_comment) {
+        reject_comment(comment);
         return;
     }
 
@@ -1385,17 +1405,30 @@ void JTextWriter::ensure_header()
 
 void JTextWriter::reject_row(std::size_t field, char32_t sep, std::string_view value)
 {
+    reject(std::format("field {} contains the separator '{}'", field, jtext::encode_utf8(sep)), value,
+           "give this row a separator that is not in its data (level_sep)");
+}
+
+// A comment is one line (SPEC 3.2): written with a line break in it, the rest of the
+// comment would read back as the next line of the file.
+void JTextWriter::reject_comment(std::string_view comment)
+{
+    reject("its comment holds a line break", comment,
+           "keep the comment to one line (a field may hold a multiline value; a comment may not)");
+}
+
+void JTextWriter::reject(std::string_view why, std::string_view value, std::string_view fix)
+{
     constexpr std::size_t kShown = 80;
     const std::string shown = value.size() > kShown
         ? std::string(value.substr(0, kShown)) + "..." : std::string(value);
     const bool skip = bad_row_policy_ == BadRowPolicy::Skip;
-    std::println(stderr, "jText {}: cannot write a row: field {} contains the separator '{}'",
-                 skip ? "WARNING" : "ERROR", field, jtext::encode_utf8(sep));
+    std::println(stderr, "jText {}: cannot write a row: {}", skip ? "WARNING" : "ERROR", why);
     std::println(stderr, "  file:    {}", !source_path_.empty() ? source_path_
                                          : !filename_.empty() ? filename_ : std::string("(stream)"));
     std::println(stderr, "  section: {}", section_.empty() ? "(none)" : section_);
     std::println(stderr, "  value:   \"{}\"", shown);
-    std::println(stderr, "  fix:     give this row a separator that is not in its data (level_sep)");
+    std::println(stderr, "  fix:     {}", fix);
     if (skip) {
         ++skipped_rows_;
         std::println(stderr, "  policy:  Skip - row left out ({} skipped so far)", skipped_rows_);
