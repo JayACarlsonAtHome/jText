@@ -68,7 +68,9 @@ public:
     void commit() { exec("COMMIT"); }
     void rollback() { exec("ROLLBACK"); }
 
-    // Rows the last INSERT, UPDATE or DELETE changed (or the last SELECT returned).
+    // Rows the last INSERT, UPDATE, DELETE (or MERGE) on this connection changed; a SELECT,
+    // BEGIN/COMMIT/ROLLBACK, prepare, describe or DEALLOCATE leaves it as it was (the same
+    // on every backend).
     std::int64_t changes() const { return changes_; }
 
     class Statement {
@@ -287,15 +289,20 @@ public:
     PGconn* handle() const noexcept { return conn_; }
 
 private:
-    // Throws unless `r` succeeded; notes the rows it changed.
+    // Throws unless `r` succeeded; notes the rows it changed when it was DML (by its
+    // command tag), so changes() keeps the last DML's count.
     void check(const PGresult* r, const std::string& what) {
         const auto status = PQresultStatus(r);
         if (status != PGRES_COMMAND_OK && status != PGRES_TUPLES_OK) {
             const char* state = r ? PQresultErrorField(r, PG_DIAG_SQLSTATE) : nullptr;
             throw PostgresError(what + " - " + PQerrorMessage(conn_), state ? state : "");
         }
-        const char* n = PQcmdTuples(const_cast<PGresult*>(r));
-        changes_ = n && *n ? std::strtoll(n, nullptr, 10) : 0;
+        const std::string_view tag = PQcmdStatus(const_cast<PGresult*>(r));
+        if (tag.starts_with("INSERT ") || tag.starts_with("UPDATE ") || tag.starts_with("DELETE ") ||
+            tag.starts_with("MERGE ")) {
+            const char* n = PQcmdTuples(const_cast<PGresult*>(r));
+            changes_ = n && *n ? std::strtoll(n, nullptr, 10) : 0;
+        }
     }
 
     PGconn* conn_ = nullptr;

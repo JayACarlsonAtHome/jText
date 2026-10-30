@@ -23,11 +23,11 @@
 
 1. #|# 2|canonical_dir|Qlite/v001/Qlite
 
-1. #|# 3|canonical_commit|1431dd4b28f6
+1. #|# 3|canonical_commit|f47cf5b93b43
 
 1. #|# 4|canonical_dirty|No
 
-1. #|# 5|canonical_version|v001.016
+1. #|# 5|canonical_version|v001.017
 
 1. #|# 6|transform|none
 
@@ -60,19 +60,19 @@
 === Data ===
 1. #|# 1|include/Qlite/v001.hpp|include/Qlite/v001.hpp|2f4be1e0263e1ca942d496d87e05aa36d62b52e7bf4fad49c1daf983595a3ac9|2f4be1e0263e1ca942d496d87e05aa36d62b52e7bf4fad49c1daf983595a3ac9
 
-1. #|# 2|include/Qlite/v001/Database.body.hpp|include/Qlite/v001/Database.body.hpp|c09a4b575b48d5ce3bd73a3792f148f7c2a0f0fbc23398a9fb1d17b1d1231abe|c09a4b575b48d5ce3bd73a3792f148f7c2a0f0fbc23398a9fb1d17b1d1231abe
+1. #|# 2|include/Qlite/v001/Database.body.hpp|include/Qlite/v001/Database.body.hpp|cceb4c97b60b1eb6c74dd11276f5b0fb3f042781c63acf52f17313fbd667a021|cceb4c97b60b1eb6c74dd11276f5b0fb3f042781c63acf52f17313fbd667a021
 
 1. #|# 3|include/Qlite/v001/Database.hpp|include/Qlite/v001/Database.hpp|7dc6fa2f50fa8e51840526571e297e3114352e16b1a9a012078c2936b99ed29c|7dc6fa2f50fa8e51840526571e297e3114352e16b1a9a012078c2936b99ed29c
 
-1. #|# 4|include/Qlite/v001/MariaDB.body.hpp|include/Qlite/v001/MariaDB.body.hpp|0623fcb55297abcf31b63cd05aad714216f58e2a8bdce985f56626bc0469e6db|0623fcb55297abcf31b63cd05aad714216f58e2a8bdce985f56626bc0469e6db
+1. #|# 4|include/Qlite/v001/MariaDB.body.hpp|include/Qlite/v001/MariaDB.body.hpp|5b87de7b4da58ca3ef1507ec7bb7f8f8f766f4a727238fff039f7c45740d8fa5|5b87de7b4da58ca3ef1507ec7bb7f8f8f766f4a727238fff039f7c45740d8fa5
 
 1. #|# 5|include/Qlite/v001/MariaDB.hpp|include/Qlite/v001/MariaDB.hpp|5437d81b0b7890fcc9fb8b21d2a40e921721c8bf6bdf4c9efd2c1be7f4313127|5437d81b0b7890fcc9fb8b21d2a40e921721c8bf6bdf4c9efd2c1be7f4313127
 
-1. #|# 6|include/Qlite/v001/Postgres.body.hpp|include/Qlite/v001/Postgres.body.hpp|2f5039789877486af82624bd4c77945907707a1a08c478e866f7f463db923ee2|2f5039789877486af82624bd4c77945907707a1a08c478e866f7f463db923ee2
+1. #|# 6|include/Qlite/v001/Postgres.body.hpp|include/Qlite/v001/Postgres.body.hpp|869dd1628b36fb9e4de6405854fe1e91279e6bc3c5c8bcf1e2aff151c526436b|869dd1628b36fb9e4de6405854fe1e91279e6bc3c5c8bcf1e2aff151c526436b
 
 1. #|# 7|include/Qlite/v001/Postgres.hpp|include/Qlite/v001/Postgres.hpp|c84ef94e7f51260db20aa8cd07d398be6d4dfa2e3c3eae749a5ab1d24ef2f52f|c84ef94e7f51260db20aa8cd07d398be6d4dfa2e3c3eae749a5ab1d24ef2f52f
 
-1. #|# 8|include/Qlite/v001/Sqlite.body.hpp|include/Qlite/v001/Sqlite.body.hpp|d21e0705c7767fe684d67c0e765c8272f2ec6cc2d5e146e1fa757b1ddd6c5637|d21e0705c7767fe684d67c0e765c8272f2ec6cc2d5e146e1fa757b1ddd6c5637
+1. #|# 8|include/Qlite/v001/Sqlite.body.hpp|include/Qlite/v001/Sqlite.body.hpp|5e231e0d64c21b611c8b358b23d1131d98e78440ceba39ef0e3534fadd967ac3|5e231e0d64c21b611c8b358b23d1131d98e78440ceba39ef0e3534fadd967ac3
 
 1. #|# 9|include/Qlite/v001/Sqlite.hpp|include/Qlite/v001/Sqlite.hpp|047f6dee6495cb83fbcb4d6c75204cdcd7369c3b123cb1f633ae181bbbdc8649|047f6dee6495cb83fbcb4d6c75204cdcd7369c3b123cb1f633ae181bbbdc8649
 

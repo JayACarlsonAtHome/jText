@@ -205,7 +205,8 @@ public:
     void commit() { exec("COMMIT;"); }
     void rollback() { exec("ROLLBACK;"); }
 
-    // Rows the last INSERT, UPDATE or DELETE changed.
+    // Rows the last INSERT, UPDATE or DELETE on this connection changed; a SELECT,
+    // BEGIN/COMMIT/ROLLBACK or prepare leaves it as it was (the same on every backend).
     std::int64_t changes() const { return sqlite3_changes64(db_); }
 
     // -----------------------------------------------------------------------
@@ -261,7 +262,7 @@ public:
             int rc = sqlite3_step(stmt_);
             if (rc == SQLITE_ROW) return true;
             if (rc == SQLITE_DONE) return false;
-            throw SqliteError("step failed", rc);
+            throw SqliteError(std::string("step failed: ") + sqlite3_errmsg(sqlite3_db_handle(stmt_)), rc);
         }
 
         void reset() {
@@ -344,7 +345,7 @@ public:
             int rc = sqlite3_step(stmt_);
             if (rc == SQLITE_ROW) return true;
             if (rc == SQLITE_DONE) return false;
-            return std::unexpected(SqliteError("step failed", rc));
+            return std::unexpected(SqliteError(std::string("step failed: ") + sqlite3_errmsg(sqlite3_db_handle(stmt_)), rc));
         }
 #endif
 

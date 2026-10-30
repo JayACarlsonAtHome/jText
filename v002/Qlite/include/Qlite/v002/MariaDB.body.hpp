@@ -73,10 +73,11 @@ public:
     // One or more statements, no parameters.
     void exec(const std::string& sql) {
         if (mysql_real_query(conn_, sql.data(), sql.size()) != 0) fail("exec failed: " + sql);
+        const bool dml = is_dml(sql);   // a multi-statement exec: by its first statement
         do {
             if (MYSQL_RES* res = mysql_store_result(conn_)) mysql_free_result(res);
-            else if (mysql_field_count(conn_) == 0) changes_ = static_cast<std::int64_t>(mysql_affected_rows(conn_));
-            else fail("exec failed: " + sql);
+            else if (mysql_field_count(conn_) != 0) fail("exec failed: " + sql);
+            else if (dml) changes_ = static_cast<std::int64_t>(mysql_affected_rows(conn_));
         } while (next_result(sql));
     }
 
@@ -84,14 +85,17 @@ public:
     void commit() { exec("COMMIT"); }
     void rollback() { exec("ROLLBACK"); }
 
-    // Rows the last INSERT, UPDATE or DELETE changed (an UPDATE: the rows it matched).
+    // Rows the last INSERT, UPDATE, DELETE (or REPLACE) on this connection changed (an
+    // UPDATE: the rows it matched); a SELECT, START TRANSACTION/COMMIT/ROLLBACK or prepare
+    // leaves it as it was (the same on every backend).
     std::int64_t changes() const { return changes_; }
 
     class Statement {
     public:
         friend class MariaDB;   // the connection re-points db_ when it moves
 
-        Statement(MariaDB& db, const std::string& sql) : db_(&db), stmt_(mysql_stmt_init(db.conn_)) {
+        Statement(MariaDB& db, const std::string& sql)
+            : db_(&db), stmt_(mysql_stmt_init(db.conn_)), dml_(is_dml(sql)) {
             if (!stmt_) db.fail("Failed to prepare: " + sql);
             if (mysql_stmt_prepare(stmt_, sql.data(), sql.size()) != 0) {
                 MariaDBError e("Failed to prepare: " + sql + " - " + mysql_stmt_error(stmt_), mysql_stmt_errno(stmt_));
@@ -123,7 +127,7 @@ public:
               on_row_(o.on_row_), out_(std::move(o.out_)), out_len_(std::move(o.out_len_)),
               out_null_(std::move(o.out_null_)), out_text_(std::move(o.out_text_)),
               out_int_(std::move(o.out_int_)), out_double_(std::move(o.out_double_)),
-              cells_(std::move(o.cells_)) {
+              cells_(std::move(o.cells_)), dml_(o.dml_) {
             o.stmt_ = nullptr;
         }
         Statement& operator=(Statement&& o) noexcept {
@@ -144,6 +148,7 @@ public:
                 out_int_ = std::move(o.out_int_);
                 out_double_ = std::move(o.out_double_);
                 cells_ = std::move(o.cells_);
+                dml_ = o.dml_;
                 o.stmt_ = nullptr;
             }
             return *this;
@@ -288,13 +293,12 @@ public:
             if (mysql_stmt_execute(stmt_)) throw_stmt("step failed");
             executed_ = true;
             if (names_.empty()) {
-                db_->changes_ = static_cast<std::int64_t>(mysql_stmt_affected_rows(stmt_));
+                if (dml_) db_->changes_ = static_cast<std::int64_t>(mysql_stmt_affected_rows(stmt_));
                 return;
             }
             const my_bool update_max = 1;
             mysql_stmt_attr_set(stmt_, STMT_ATTR_UPDATE_MAX_LENGTH, &update_max);
             if (mysql_stmt_store_result(stmt_)) throw_stmt("step failed");
-            db_->changes_ = static_cast<std::int64_t>(mysql_stmt_num_rows(stmt_));
 
             MYSQL_RES* meta = mysql_stmt_result_metadata(stmt_);
             const MYSQL_FIELD* f = meta ? mysql_fetch_fields(meta) : nullptr;
@@ -378,6 +382,7 @@ public:
         std::vector<long long> out_int_;
         std::vector<double> out_double_;
         std::vector<std::optional<std::string>> cells_;
+        bool dml_ = false;   // INSERT, UPDATE, DELETE or REPLACE: running it sets changes()
     };
 
     // RAII transaction guard (Database.body.hpp): START TRANSACTION now, ROLLBACK at
@@ -416,6 +421,21 @@ public:
 private:
     [[noreturn]] void fail(const std::string& what) {
         throw MariaDBError(what + " - " + mysql_error(conn_), mysql_errno(conn_));
+    }
+
+    // Whether `sql` is DML (INSERT, UPDATE, DELETE or REPLACE), by its first keyword after
+    // whitespace, any case: only DML sets changes().
+    static bool is_dml(std::string_view sql) noexcept {
+        std::size_t i = 0;
+        while (i < sql.size() && (sql[i] == ' ' || sql[i] == '\t' || sql[i] == '\n' || sql[i] == '\r' ||
+                                  sql[i] == '\f' || sql[i] == '\v')) ++i;
+        std::size_t j = i;
+        while (j < sql.size() && ((sql[j] >= 'A' && sql[j] <= 'Z') || (sql[j] >= 'a' && sql[j] <= 'z'))) ++j;
+        if (j - i != 6 && j - i != 7) return false;
+        char word[8] = {};
+        for (std::size_t k = i; k < j; ++k) word[k - i] = static_cast<char>(sql[k] & ~0x20);   // ASCII upper
+        const std::string_view w(word, j - i);
+        return w == "INSERT" || w == "UPDATE" || w == "DELETE" || w == "REPLACE";
     }
 
     // Moves to the next result of a multi-statement exec(); false when there is none.
