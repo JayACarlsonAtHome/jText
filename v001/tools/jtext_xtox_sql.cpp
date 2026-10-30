@@ -103,7 +103,9 @@ static auto is_plain_integer(const std::string& v) -> bool
 //   - String : quoted+escaped.
 //   - Number / Integer: a plain integer is emitted unquoted; any other text is
 //              quoted+escaped defensively (the validator normally rejects
-//              non-numeric values before we get here).
+//              non-numeric values before we get here). A Number holding a
+//              non-finite word is written as the quoted canonical word 'NaN',
+//              'Infinity' or '-Infinity'.
 //   - Date / DateTime / GST : quoted+escaped (a date field always holds a date:
 //              the validator refuses an empty one before we get here).
 //   - Bool   : a Bool value -> TRUE / FALSE (SQL standard boolean literals);
@@ -116,8 +118,10 @@ static auto sql_literal(const jtext::field& f, const std::string& val) -> std::s
         const auto b = jtext::parse_bool_value(val);
         return b ? (*b ? "TRUE" : "FALSE") : sql_string_literal(val);
     }
-    case jtext::field_type::integer_type:
     case jtext::field_type::number_type:
+        if (const auto word = jtext::non_finite_number_word(val)) return sql_string_literal(std::string(*word));
+        return is_plain_integer(val) ? val : sql_string_literal(val);
+    case jtext::field_type::integer_type:
         return is_plain_integer(val) ? val : sql_string_literal(val);
     case jtext::field_type::date_type:
     case jtext::field_type::datetime_type:
@@ -230,6 +234,7 @@ int main(int argc, char** argv)
     output_sql += "-- Generated from " + std::string(base) + ".jtFull\n";
     output_sql += "-- by jtext_xtox_sql\n";
     output_sql += "-- Note: Identity/auto columns are controlled by the templates in the jText file.\n";
+    output_sql += "-- Note: Number values NaN, Infinity and -Infinity are written as the quoted words 'NaN', 'Infinity', '-Infinity' (PostgreSQL reads them as float8; SQLite keeps them as text; MariaDB has no such values and rejects the row).\n";
     // String literals are standard SQL (a quote is doubled, a backslash is a backslash).
     // MariaDB alone runs this comment: it stops reading backslashes as escapes.
     output_sql += "/*M! SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_BACKSLASH_ESCAPES') */;\n";

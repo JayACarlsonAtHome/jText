@@ -91,6 +91,35 @@ void expect_date_rejected(const std::string& date) {
     }
 }
 
+// A record whose field 1 (the id), an Integer field and a Number field take
+// the given values; reports whether validation produced any error.
+bool number_validation_errors(const std::string& id, const std::string& integer,
+                              const std::string& number) {
+    const std::string doc =
+        "=== jText File ===\n"
+        " 1. #?# number_test\n"
+        "\n"
+        "=== Section: N ===\n"
+        "\n"
+        "=== Fields ===\n"
+        " 1. #/# id/Number/Not Null\n"
+        " 2. #/# i/Integer/Not Null\n"
+        " 3. #/# x/Number/Not Null\n"
+        "\n"
+        "=== End Fields ===\n"
+        "=== Data ===\n"
+        " 1. #?# " + id + "\n"
+        " 2. #?# " + integer + "\n"
+        " 3. #?# " + number + "\n"
+        "\n"
+        "=== End Data ===\n"
+        "=== End Section ===\n"
+        "=== End File ===\n";
+    auto pf = jtext::parse_file_structure(doc);
+    if (!pf.has_value()) return true;
+    return jtext::validate(*pf, jtext::validation_level::strict).report.has_errors();
+}
+
 // Build a 2-field section whose template body is `body`, then parse + validate
 // and report whether validation produced any error. Used to exercise the
 // template {N} placeholder range check.
@@ -282,6 +311,20 @@ int main() {
     expect_ok("1. #/# A/B/C",       "ok-levels");
     expect_ok("1. [*",              "ok-multiline-opener");
     expect_ok("1. [* # a note",     "ok-multiline-opener-comment");
+
+    {
+        // NaN and the infinities are data in a Number field, never in an Integer or the id.
+        auto must = [&](bool cond, const std::string& what) {
+            if (!cond) { std::cerr << "FAIL[number]: " << what << "\n"; ++failures; }
+        };
+        for (const char* w : {"NaN", "Infinity", "-Infinity", "+Infinity", "nan", "3.25"})
+            must(!number_validation_errors("1", "7", w), std::string("Number should accept ") + w);
+        for (const char* w : {"Infinite", "N/A", "NaNa", "-NaN"})
+            must(number_validation_errors("1", "7", w), std::string("Number should reject '") + w + "'");
+        must(number_validation_errors("1", "NaN", "1.5"), "Integer should reject NaN");
+        must(number_validation_errors("1", "Infinity", "1.5"), "Integer should reject Infinity");
+        must(number_validation_errors("NaN", "7", "1.5"), "field 1 (record id) should reject NaN");
+    }
 
     // --- strict Date validation: exactly YYYY-MM-DD, real calendar date ---
     expect_date_ok("2026-06-23");                 // ordinary valid date

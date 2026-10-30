@@ -234,6 +234,21 @@ auto looks_like_integer(std::string_view s) -> bool
     return true;
 }
 
+auto non_finite_number_word(std::string_view s) -> std::optional<std::string_view>
+{
+    const auto equals_ci = [](std::string_view a, std::string_view b) {
+        return a.size() == b.size() &&
+               std::ranges::equal(a, b, [](char x, char y) {
+                   return std::tolower(static_cast<unsigned char>(x)) ==
+                          std::tolower(static_cast<unsigned char>(y));
+               });
+    };
+    if (equals_ci(s, "NaN")) return "NaN";
+    if (equals_ci(s, "Infinity") || equals_ci(s, "+Infinity")) return "Infinity";
+    if (equals_ci(s, "-Infinity")) return "-Infinity";
+    return std::nullopt;
+}
+
 auto parse_gst_value(std::string_view s) -> std::optional<gst_value>
 {
     const auto colon = s.find(':');
@@ -304,9 +319,13 @@ namespace {
 // Number: parseable as integer or decimal. Optional leading sign.
 // We accept these patterns:
 //   42, -42, +42, 3.14, -3.14, 0, 0.0, 1e10, -1.5e-3
+// and the non-finite words NaN, Infinity, +Infinity, -Infinity (any letter
+// case; see non_finite_number_word). Integer fields and the record id
+// (field 1) do not use this check, so they stay integers only.
 auto looks_like_number(std::string_view s) -> bool
 {
     if (s.empty()) return false;
+    if (non_finite_number_word(s)) return true;
     std::size_t i = 0;
     if (s[0] == '+' || s[0] == '-') i = 1;
     bool has_digit = false;

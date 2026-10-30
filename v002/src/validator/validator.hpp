@@ -103,6 +103,13 @@ auto parse_auto_id_designation(std::string_view s) -> std::optional<auto_id_spec
 // nothing else (no decimal point, no exponent). The record id must be one.
 auto looks_like_integer(std::string_view s) -> bool;
 
+// The non-finite double values are data (SPEC 2.4.1, Number: "any verbatim
+// emission"): a Number value may be the word NaN, Infinity, +Infinity or
+// -Infinity, in any letter case. Returns the canonical spelling ("NaN",
+// "Infinity" or "-Infinity", PostgreSQL's), or nullopt for anything else.
+// Integer fields and the record id (field 1) never take these words.
+auto non_finite_number_word(std::string_view s) -> std::optional<std::string_view>;
+
 // True when `s` is exactly YYYY-MM-DD and a real calendar date (the Date type).
 auto looks_like_date(std::string_view s) -> bool;
 
