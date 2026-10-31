@@ -1,0 +1,65 @@
+//File:    STATUS.jtext
+//Purpose: Work status of this repo for the jacSTATUS page: what is in progress, what is next,
+//         and the questions waiting for an answer. Update it in the same commit as the work.
+//         Values never contain '|'. An empty cell means none (never NULL).
+//         questions: the question is open while answer is empty; fill answer to close it.
+//
+=== jText File ===
+ 1. #?# STATUS
+ 3. #?# Work status of jText
+
+
+=== Section: in_progress ===
+
+
+=== Fields ===
+ 1. #/# id/Identity(1,1)/Not Null
+ 2. #/# item/String/Not Null
+ 3. #/# detail/String/Not Null
+ 4. #/# started/Date/Not Null
+ 5. #/# who/String/Not Null          # Jay, or the Claude session (e.g. Claude jay-35)
+=== End Fields ===
+
+
+=== Data ===
+
+=== End Data ===
+=== End Section ===
+
+
+=== Section: next ===
+
+
+=== Fields ===
+ 1. #/# id/Identity(1,1)/Not Null
+ 2. #/# priority/Integer/Not Null    # 1 = first
+ 3. #/# item/String/Not Null
+ 4. #/# detail/String/Not Null
+=== End Fields ===
+
+
+=== Data ===
+1. #|# 1|1|Docs pass with the breaking changes|Deferred by Jay. v00x.031: Number accepts NaN, Infinity, -Infinity; the SQL export writes them as quoted words and carries a MariaDB NO_BACKSLASH_ESCAPES line; a comment holding a line break is a rejected row (BadRowPolicy); a leading UTF-8 BOM is skipped; from_sql matches integer types by their leading word. SPEC.md, README and tool docs to say so.
+
+=== End Data ===
+=== End Section ===
+
+
+=== Section: questions ===
+
+
+=== Fields ===
+ 1. #/# id/Identity(1,1)/Not Null
+ 2. #/# question/String/Not Null
+ 3. #/# context/String/Not Null
+ 4. #/# asked/Date/Not Null
+ 5. #/# asked_by/String/Not Null
+ 6. #/# answer/String/Not Null       # empty = still open
+=== End Fields ===
+
+
+=== Data ===
+
+=== End Data ===
+=== End Section ===
+=== End File ===
