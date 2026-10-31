@@ -527,7 +527,7 @@ static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& f
         return false;
     };
     for (const char b : kBookendChoices)
-        if (b != sep && !appears(b)) return b;
+        if (b != sep && !appears(b)) return static_cast<unsigned char>(b);
     // Every choice is somewhere in the data: take the first the parser cannot
     // mistake for a comment marker.
     for (const char b : kBookendChoices) {
@@ -536,7 +536,7 @@ static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& f
         for (std::size_t i = 0; i < fields.size() && !clash; ++i)
             clash = field_has_comment_marker(field_text(fields[i]), b, i == 0, fields.size() == 1,
                                              has_comment && i + 1 == fields.size());
-        if (!clash) return b;
+        if (!clash) return static_cast<unsigned char>(b);
     }
     return '#';
 }
@@ -595,7 +595,7 @@ static char32_t choose_splice(char32_t requested_bookend, const Fields& fields)
         bool in_data = false;
         for (const auto& f : fields)
             if (field_text(f).find(b) != std::string_view::npos) { in_data = true; break; }
-        if (!in_data) return b;
+        if (!in_data) return static_cast<unsigned char>(b);
     }
     return 0;
 }

@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.26)
 
 project(jText_v001 VERSION 0.1.0 LANGUAGES CXX)
 
+# Format checks, always on: a printf-style call whose arguments do not match its format
+# (e.g. a 64-bit value given to %d) is an error, not undefined behaviour at run time.
+# Conversion warnings, always on: a value silently narrowed or changing sign (size_t into int,
+# int into unsigned, 64-bit into float). Warnings, not errors; -Wsign-conversion makes gcc
+# report the signed/unsigned mixes clang's -Wconversion already does.
+add_compile_options(-Wformat=2 -Werror=format -Wconversion -Wsign-conversion)
+
 # jText::jText — in-tree structured-text library.
 # Migrated from the legacy sibling jText repo; no sibling checkout needed.
 # The compiled core (jtext_core) lives here; the public API is the global
