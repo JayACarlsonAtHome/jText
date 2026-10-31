@@ -174,9 +174,9 @@ void section(const Node* s, std::string& out)
             before.clear();
             if (auto c = attr(v, "comment"))
                 notes += std::format("<li data-kind=\"line\" data-position=\"{}\">{}</li>", p, esc(*c));
-            else if (auto c = attr(v, "comment-base64"))
+            else if (auto c64 = attr(v, "comment-base64"))
                 notes += std::format("<li data-kind=\"line\" data-position=\"{}\" data-encoding=\"base64\">{}</li>", p,
-                                     esc(*c));
+                                     esc(*c64));
             cells += text_cell(v, std::format(" data-position=\"{}\"", p));
         }
         out += "<tr data-element=\"record\">" + cells + "<td class=\"comments\">" +

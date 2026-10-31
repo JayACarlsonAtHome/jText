@@ -9,6 +9,20 @@ project(jText_v001 VERSION 0.1.0 LANGUAGES CXX)
 # report the signed/unsigned mixes clang's -Wconversion already does.
 add_compile_options(-Wformat=2 -Werror=format -Wconversion -Wsign-conversion)
 
+# Extra warnings, opt-in: the same set as jac313's JAC313_STRICT.
+option(JTEXT_STRICT "Extra warnings: -Wall -Wextra -Wpedantic and friends" OFF)
+option(JTEXT_STRICT_WERROR "With JTEXT_STRICT: treat those warnings as errors" OFF)
+if(JTEXT_STRICT)
+    # -Wnull-dereference is left out: on gcc 15 it fires only inside libstdc++ <streambuf>.
+    add_compile_options(
+        -Wall -Wextra -Wpedantic
+        -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Woverloaded-virtual
+        -Wimplicit-fallthrough)
+    if(JTEXT_STRICT_WERROR)
+        add_compile_options(-Werror)
+    endif()
+endif()
+
 # jText::jText — in-tree structured-text library.
 # Migrated from the legacy sibling jText repo; no sibling checkout needed.
 # The compiled core (jtext_core) lives here; the public API is the global

@@ -114,13 +114,13 @@ private:
 
     // Put `closer` after the last non-blank line so far, so it sits right under the
     // block it closes and the blank lines stay between blocks.
-    void add(std::string closer)
+    void add(std::string line)
     {
         auto at = lines_.size();
         while (at > 0 && trim(lines_[at - 1]).empty()) --at;
-        lines_.insert(lines_.begin() + static_cast<std::ptrdiff_t>(at), closer);
-        added_.push_back(line_no_ ? std::format("line {}: added '{}'", line_no_, trim(closer))
-                                  : std::format("end of file: added '{}'", trim(closer)));
+        lines_.insert(lines_.begin() + static_cast<std::ptrdiff_t>(at), line);
+        added_.push_back(line_no_ ? std::format("line {}: added '{}'", line_no_, trim(line))
+                                  : std::format("end of file: added '{}'", trim(line)));
     }
 
     // A line that opens a multiline value: "6. [* # comment", or a template's bare "[*".

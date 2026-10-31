@@ -480,6 +480,8 @@ void write_header_block(std::ostream& out,
 // SPEC allows in a formatter (printable ASCII, not alphanumeric, not whitespace);
 // '[' and ']' are left out because "[]" is the raw-data marker.
 static constexpr std::string_view kBookendChoices = "#^%~!@$&*+=:;?\"'(),./<>\\_`{}|-";
+// A bookend choice as the char32_t the writer compares and returns (the choices are ASCII).
+static constexpr char32_t ascii32(char c) { return static_cast<unsigned char>(c); }
 
 // True when the parser would open a comment inside `field`: the bookend with a
 // space on each side, a trailing " b" on the last field when a comment follows, or,
@@ -526,16 +528,16 @@ static char32_t choose_bookend(char32_t requested, char32_t sep, const Fields& f
         return false;
     };
     for (const char b : kBookendChoices)
-        if (b != sep && !appears(b)) return static_cast<unsigned char>(b);
+        if (ascii32(b) != sep && !appears(b)) return ascii32(b);
     // Every choice is somewhere in the data: take the first the parser cannot
     // mistake for a comment marker.
     for (const char b : kBookendChoices) {
-        if (b == sep) continue;
+        if (ascii32(b) == sep) continue;
         bool clash = false;
         for (std::size_t i = 0; i < fields.size() && !clash; ++i)
             clash = field_has_comment_marker(field_text(fields[i]), b, i == 0, fields.size() == 1,
                                              has_comment && i + 1 == fields.size());
-        if (!clash) return static_cast<unsigned char>(b);
+        if (!clash) return ascii32(b);
     }
     return '#';
 }
@@ -590,11 +592,11 @@ template <class Fields>
 static char32_t choose_splice(char32_t requested_bookend, const Fields& fields)
 {
     for (const char b : kBookendChoices) {
-        if (b == '#' || b == requested_bookend) continue;
+        if (b == '#' || ascii32(b) == requested_bookend) continue;
         bool in_data = false;
         for (const auto& f : fields)
             if (field_text(f).find(b) != std::string_view::npos) { in_data = true; break; }
-        if (!in_data) return static_cast<unsigned char>(b);
+        if (!in_data) return ascii32(b);
     }
     return 0;
 }
@@ -857,9 +859,6 @@ JTextWriter::JTextWriter(JTextWriter&& other) noexcept
       auto_batch_size_(other.auto_batch_size_),
       pending_batch_(std::move(other.pending_batch_)),
       line_pad_width_(other.line_pad_width_),
-      record_id_seed_(other.record_id_seed_),
-      record_id_step_(other.record_id_step_),
-      last_record_id_(other.last_record_id_),
       bad_row_policy_(other.bad_row_policy_),
       skipped_rows_(other.skipped_rows_),
       section_(std::move(other.section_)),
@@ -867,6 +866,9 @@ JTextWriter::JTextWriter(JTextWriter&& other) noexcept
       profile_(other.profile_),
       full_block_(other.full_block_),
       fields_written_(other.fields_written_),
+      record_id_seed_(other.record_id_seed_),
+      record_id_step_(other.record_id_step_),
+      last_record_id_(other.last_record_id_),
       source_path_(std::move(other.source_path_)),
       filename_(std::move(other.filename_))
 {

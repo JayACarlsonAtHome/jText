@@ -138,15 +138,18 @@ constexpr std::string_view kStyles =
 
 // ── Reading ───────────────────────────────────────────────────
 
+// libxml2 takes const xmlChar* (unsigned char); its BAD_CAST macro is an old-style cast.
+auto xml_str(const char* s) -> const xmlChar* { return reinterpret_cast<const xmlChar*>(s); }
+
 auto is(const xmlNode* n, const char* ns, const char* name) -> bool
 {
-    return n->type == XML_ELEMENT_NODE && n->ns && xmlStrcmp(n->ns->href, BAD_CAST ns) == 0 &&
-           xmlStrcmp(n->name, BAD_CAST name) == 0;
+    return n->type == XML_ELEMENT_NODE && n->ns && xmlStrcmp(n->ns->href, xml_str(ns)) == 0 &&
+           xmlStrcmp(n->name, xml_str(name)) == 0;
 }
 
 auto attr(const xmlNode* n, const char* ns, const char* name) -> std::string
 {
-    std::unique_ptr<xmlChar, decltype(xmlFree)> v(xmlGetNsProp(n, BAD_CAST name, BAD_CAST ns), xmlFree);
+    std::unique_ptr<xmlChar, decltype(xmlFree)> v(xmlGetNsProp(n, xml_str(name), xml_str(ns)), xmlFree);
     return v ? std::string(reinterpret_cast<const char*>(v.get())) : std::string{};
 }
 

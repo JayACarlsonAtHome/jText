@@ -1,6 +1,6 @@
 #include <jText/v002.hpp>
 
-static_assert(jText::v002::version() == "v002.032", "v002 version");
+static_assert(jText::v002::version() == "v002.033", "v002 version");
 
 #include "parser/close.hpp"
 #include "parser/line.hpp"
@@ -65,9 +65,9 @@ int main() {
     writer.append_row(1, {std::string("jac313")});
     writer.finalize();
 
-    const std::string text = out.str();
-    check(text.find("jac313 smoke") != std::string::npos, "text.find(\"jac313 smoke\") != std::string::npos");
-    check(text.find("jac313") != std::string::npos, "text.find(\"jac313\") != std::string::npos");
+    const std::string smoke = out.str();
+    check(smoke.find("jac313 smoke") != std::string::npos, "smoke.find(\"jac313 smoke\") != std::string::npos");
+    check(smoke.find("jac313") != std::string::npos, "smoke.find(\"jac313\") != std::string::npos");
 
     check(jText::v002::JTextProfile::Light != jText::v002::JTextProfile::Full, "jText::v002::JTextProfile::Light != jText::v002::JTextProfile::Full");
     check(jText::v002::jtext_line_pad_width_for_count(10) >= 1, "jText::v002::jtext_line_pad_width_for_count(10) >= 1");
@@ -758,9 +758,9 @@ int main() {
         auto pf = jtext::parse_file_structure(full);
         check(pf.has_value(), "the commented full file parses");
         const auto texts = [](const std::vector<jtext::comment_line>& v) {
-            std::vector<std::pair<std::size_t, std::string>> out;
-            for (const auto& c : v) out.emplace_back(c.before, c.text);
-            return out;
+            std::vector<std::pair<std::size_t, std::string>> pairs;
+            for (const auto& c : v) pairs.emplace_back(c.before, c.text);
+            return pairs;
         };
         using P = std::vector<std::pair<std::size_t, std::string>>;
         check(texts(pf->header_comments) == P{{0, "about the header"}, {2, "header end"}},
