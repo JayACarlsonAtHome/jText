@@ -7,20 +7,16 @@ project(jText_v001 VERSION 0.1.0 LANGUAGES CXX)
 # Conversion warnings, always on: a value silently narrowed or changing sign (size_t into int,
 # int into unsigned, 64-bit into float). Warnings, not errors; -Wsign-conversion makes gcc
 # report the signed/unsigned mixes clang's -Wconversion already does.
-add_compile_options(-Wformat=2 -Werror=format -Wconversion -Wsign-conversion)
+# Strict warnings, always on, as in jac313: warnings only, no runtime effect.
+# -Wnull-dereference is left out: on gcc 15 it fires only inside libstdc++ <streambuf>.
+add_compile_options(-Wformat=2 -Werror=format -Wconversion -Wsign-conversion
+    -Wall -Wextra -Wpedantic
+    -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Woverloaded-virtual
+    -Wimplicit-fallthrough)
 
-# Extra warnings, opt-in: the same set as jac313's JAC313_STRICT.
-option(JTEXT_STRICT "Extra warnings: -Wall -Wextra -Wpedantic and friends" OFF)
-option(JTEXT_STRICT_WERROR "With JTEXT_STRICT: treat those warnings as errors" OFF)
-if(JTEXT_STRICT)
-    # -Wnull-dereference is left out: on gcc 15 it fires only inside libstdc++ <streambuf>.
-    add_compile_options(
-        -Wall -Wextra -Wpedantic
-        -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Woverloaded-virtual
-        -Wimplicit-fallthrough)
-    if(JTEXT_STRICT_WERROR)
-        add_compile_options(-Werror)
-    endif()
+option(JTEXT_WERROR "Treat every warning as an error (-Werror)" OFF)
+if(JTEXT_WERROR)
+    add_compile_options(-Werror)
 endif()
 
 # jText::jText — in-tree structured-text library.
