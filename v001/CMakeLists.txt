@@ -5,19 +5,15 @@ project(jText_v001 VERSION 0.1.0 LANGUAGES CXX)
 # Format checks, always on: a printf-style call whose arguments do not match its format
 # (e.g. a 64-bit value given to %d) is an error, not undefined behaviour at run time.
 # Conversion warnings, always on: a value silently narrowed or changing sign (size_t into int,
-# int into unsigned, 64-bit into float). Warnings, not errors; -Wsign-conversion makes gcc
+# int into unsigned, 64-bit into float). -Wsign-conversion makes gcc
 # report the signed/unsigned mixes clang's -Wconversion already does.
-# Strict warnings, always on, as in jac313: warnings only, no runtime effect.
+# Strict warnings, always on, as in jac313: no runtime effect.
 # -Wnull-dereference is left out: on gcc 15 it fires only inside libstdc++ <streambuf>.
-add_compile_options(-Wformat=2 -Werror=format -Wconversion -Wsign-conversion
+# -Werror, always on: every warning is a build error, so none can pile up unseen.
+add_compile_options(-Werror -Wformat=2 -Wconversion -Wsign-conversion
     -Wall -Wextra -Wpedantic
     -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Woverloaded-virtual
     -Wimplicit-fallthrough)
-
-option(JTEXT_WERROR "Treat every warning as an error (-Werror)" OFF)
-if(JTEXT_WERROR)
-    add_compile_options(-Werror)
-endif()
 
 # jText::jText — in-tree structured-text library.
 # Migrated from the legacy sibling jText repo; no sibling checkout needed.
